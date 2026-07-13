@@ -187,3 +187,5 @@ next to the source).
 ## License
 
 MIT
+
+<!-- synced from local cli/ -->
