@@ -1,0 +1,33 @@
+# Example: the "i18n firewall" — fail the build if a PR leaves translations incomplete or
+# placeholder-broken. Copy this into your own repo's .github/workflows/i18n-check.yml.
+#
+# No API call, no key needed — `kaeris check` is a local, static comparison of your source
+# (base-language) file against each target locale. Add this job as a required status check
+# in branch protection and a PR literally cannot merge with a broken translation.
+
+name: i18n check
+
+on:
+  pull_request:
+    paths:
+      - "locales/**"
+
+jobs:
+  i18n-firewall:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: kaeris check --ci (i18n firewall)
+        uses: RaiGanja/kaeris-cli/.github/actions/kaeris-translate@main
+        with:
+          mode: check
+          source: locales/en.json
+          languages: es,fr,de,ja,zh,pt,it,uk
+          out: locales
+          # strict: "true"   # also fail on extra/stale keys not present in the source
+
+      # This step never runs if `kaeris check` above failed (its non-zero exit already failed
+      # the job) — it's here only to show the gate is real, not just documentation.
+      - name: This only runs if translations are complete & placeholder-safe
+        run: echo "i18n firewall passed — merge away"

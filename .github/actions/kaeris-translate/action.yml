@@ -1,0 +1,165 @@
+name: "KAERIS i18n Translate"
+description: "Translate new/changed i18n keys with AI, or gate CI on translation completeness — 46 languages, incremental, placeholder-safe."
+branding:
+  icon: globe
+  color: purple
+
+inputs:
+  mode:
+    description: "translate (write/update locale files) or check (i18n firewall — no API call, fails if incomplete/broken)."
+    required: false
+    default: "translate"
+  source:
+    description: "Source strings file (e.g. locales/en.json)"
+    required: true
+  languages:
+    description: "Comma-separated target languages, e.g. es,fr,de,ja"
+    required: true
+  out:
+    description: "Directory for translated files / where target locale files live (default: source's directory)"
+    required: false
+    default: ""
+  api-key:
+    description: "KAERIS API key (Pro/Team). Omit for the free anonymous tier. Unused in check mode."
+    required: false
+    default: ""
+  openrouter-key:
+    description: "OpenRouter key for Lifetime/BYOK plans. Unused in check mode."
+    required: false
+    default: ""
+  only-new:
+    description: "translate mode: only translate keys missing/changed since the last run (JSON, uses kaeris.lock)."
+    required: false
+    default: "true"
+  tone:
+    description: "translate mode: tone of voice — neutral, formal, or casual."
+    required: false
+    default: ""
+  icu:
+    description: "translate mode: hint that source strings use ICU MessageFormat (plurals/select) so it's preserved."
+    required: false
+    default: "false"
+  strict:
+    description: "check mode: also fail if a target locale has extra/stale keys not in the source."
+    required: false
+    default: "false"
+  api-url:
+    description: "API base URL."
+    required: false
+    default: "https://kaeris.dev"
+
+outputs:
+  changed:
+    description: "\"true\" if translate mode wrote/updated any locale (or lockfile) content — open a PR only when this is true."
+    value: ${{ steps.run.outputs.changed }}
+  summary:
+    description: "Markdown summary: keys translated, per-language matrix, placeholder-loss and overflow counts — use as a PR body/comment."
+    value: ${{ steps.run.outputs.summary }}
+  missing:
+    description: "Total missing-key count across all target languages, from the post-run `kaeris check --json`."
+    value: ${{ steps.run.outputs.missing }}
+  placeholder-issues:
+    description: "Total placeholder-mismatch count across all target languages (should be 0)."
+    value: ${{ steps.run.outputs.placeholder-issues }}
+  check-exit-code:
+    description: "Exit code of the post-run `kaeris check` (0 clean, 1 problem found, 2 bad usage)."
+    value: ${{ steps.run.outputs.check-exit-code }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.x"
+
+    - name: Install KAERIS CLI
+      shell: bash
+      run: pip install kaeris
+
+    - name: Run KAERIS (${{ inputs.mode }})
+      id: run
+      shell: bash
+      env:
+        KAERIS_API_KEY: ${{ inputs.api-key }}
+        KAERIS_OPENROUTER_KEY: ${{ inputs.openrouter-key }}
+        KAERIS_API_URL: ${{ inputs.api-url }}
+        KA_MODE: ${{ inputs.mode }}
+        KA_SOURCE: ${{ inputs.source }}
+        KA_LANGS: ${{ inputs.languages }}
+        KA_OUT: ${{ inputs.out }}
+        KA_ONLY_NEW: ${{ inputs.only-new }}
+        KA_TONE: ${{ inputs.tone }}
+        KA_ICU: ${{ inputs.icu }}
+        KA_STRICT: ${{ inputs.strict }}
+      run: |
+        set -e
+        out="$KA_OUT"
+        [ -z "$out" ] && out="$(dirname "$KA_SOURCE")"
+        strict_flag=()
+        [ "$KA_STRICT" = "true" ] && strict_flag+=(--strict)
+
+        before_json="$RUNNER_TEMP/kaeris-check-before.json"
+        after_json="$RUNNER_TEMP/kaeris-check-after.json"
+        translate_log="$RUNNER_TEMP/kaeris-translate.log"
+        summary_file="$RUNNER_TEMP/kaeris-summary.md"
+        changed=false
+
+        # Clear any scratch files left by a prior invocation of this action earlier in the same
+        # job (e.g. a translate step followed by a check step sharing $RUNNER_TEMP) — otherwise a
+        # stale "before" snapshot could leak into this run's translated-key count.
+        rm -f "$before_json" "$after_json" "$translate_log" "$summary_file"
+
+        if [ "$KA_MODE" = "check" ]; then
+          # The i18n firewall: static, no API call. Result captured to JSON; exit code decides the gate below.
+          set +e
+          kaeris check --source "$KA_SOURCE" --langs "$KA_LANGS" --out "$out" --ci "${strict_flag[@]}" --json > "$after_json"
+          check_exit=$?
+          set -e
+        else
+          # Baseline ("before") snapshot for an honest "N keys translated" count — best-effort;
+          # e.g. the very first run with no target files yet still produces valid JSON.
+          kaeris check --source "$KA_SOURCE" --langs "$KA_LANGS" --out "$out" --json > "$before_json" 2>/dev/null || true
+
+          args=(translate "$KA_SOURCE" --langs "$KA_LANGS" --out "$out")
+          [ "$KA_ONLY_NEW" = "true" ] && args+=(--only-new)
+          [ -n "$KA_TONE" ] && args+=(--tone "$KA_TONE")
+          [ "$KA_ICU" = "true" ] && args+=(--icu)
+          kaeris "${args[@]}" 2>&1 | tee "$translate_log"
+
+          set +e
+          kaeris check --source "$KA_SOURCE" --langs "$KA_LANGS" --out "$out" --json > "$after_json"
+          check_exit=$?
+          set -e
+
+          if [ -n "$(git status --porcelain -- "$out" 2>/dev/null)" ]; then
+            changed=true
+          fi
+        fi
+
+        # Build the markdown summary + all outputs (missing/placeholder-issues/summary) from the
+        # real `kaeris check --json` result (and, in translate mode, the translate log for overflow
+        # QA) — never fabricated. `changed` and `check-exit-code` are appended by this script below.
+        python3 "${{ github.action_path }}/summarize.py" \
+          --mode "$KA_MODE" \
+          --langs "$KA_LANGS" \
+          --after "$after_json" \
+          --before "$before_json" \
+          --log "$translate_log" \
+          --out-file "$summary_file" \
+          --github-output "$GITHUB_OUTPUT"
+
+        if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+          cat "$summary_file" >> "$GITHUB_STEP_SUMMARY"
+        fi
+        cat "$summary_file"
+
+        {
+          echo "changed=$changed"
+          echo "check-exit-code=$check_exit"
+        } >> "$GITHUB_OUTPUT"
+
+        if [ "$KA_MODE" = "check" ] && [ "$check_exit" != "0" ]; then
+          echo "::error::kaeris check found incomplete/broken translations — see the job summary for the language matrix"
+          exit "$check_exit"
+        fi
