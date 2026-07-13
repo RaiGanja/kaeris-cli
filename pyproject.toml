@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kaeris"
+version = "0.2.0"
+description = "AI localization CLI — translate JSON/YAML/.strings/.po/ARB/Android XML into 46 languages"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "KAERIS" }]
+keywords = ["i18n", "l10n", "localization", "translation", "ai", "cli"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Software Development :: Localization",
+    "Environment :: Console",
+]
+# Zero runtime dependencies — stdlib only.
+dependencies = []
+
+[project.urls]
+Homepage = "https://kaeris.dev"
+Documentation = "https://kaeris.dev/developer.html"
+Repository = "https://github.com/RaiGanja/kaeris-cli"
+
+[project.scripts]
+kaeris = "kaeris.cli:main"
+
+[tool.setuptools]
+packages = ["kaeris"]
