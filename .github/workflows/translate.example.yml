@@ -1,0 +1,51 @@
+# Example: auto-translate new/changed i18n keys and open a pull request with the result.
+# Copy this into your own repo's .github/workflows/translate.yml and adjust the paths.
+#
+# Translations land as a normal PR — review the diff, merge like any other change. No more
+# context-switching into a separate translation tool/dashboard.
+#
+# Pair this with i18n-check.example.yml (kaeris check --ci) as a branch-protection required
+# check, so a PR can't merge with missing or placeholder-broken translations either.
+
+name: i18n auto-translate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "locales/en.json" # ← your source-of-truth file
+  workflow_dispatch: {} # ← or run it by hand from the Actions tab
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  translate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Translate new/changed keys
+        id: kaeris
+        uses: RaiGanja/kaeris-cli/.github/actions/kaeris-translate@main
+        with:
+          mode: translate
+          source: locales/en.json
+          languages: es,fr,de,ja,zh,pt,it,uk
+          out: locales
+          only-new: "true" # incremental — translate what changed since kaeris.lock, not the whole file
+          # Free anonymous tier works up to 10k chars/file. For more, add a key:
+          # api-key: ${{ secrets.KAERIS_API_KEY }}
+          # openrouter-key: ${{ secrets.KAERIS_OPENROUTER_KEY }}   # Lifetime/BYOK plans only
+
+      - name: Open a pull request with the translations
+        if: steps.kaeris.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore(i18n): translate new keys via KAERIS"
+          title: "i18n: new translations (${{ steps.kaeris.outputs.missing }} key(s) still missing)"
+          body: ${{ steps.kaeris.outputs.summary }}
+          branch: kaeris/i18n-updates
+          add-paths: locales/**
+          labels: i18n
