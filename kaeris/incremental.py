@@ -94,6 +94,39 @@ def changed_or_missing_keys(source_flat, existing_flat, lock):
     return todo
 
 
+LOCK_VERSION = 2
+
+
+def settings_signature(tone="", icu=False, keep=None):
+    """Stable signature of the translation-affecting inputs the CLI controls: tone, ICU handling
+    and the glossary. A change to any of these means the WHOLE locale should be retranslated so
+    it stays internally consistent (e.g. switching neutral→formal must not leave a mix of both) —
+    that's the reproducibility contract, beyond just tracking edited source strings."""
+    keep_norm = sorted(t.strip() for t in (keep or []) if t.strip())
+    return {"tone": tone or "", "icu": bool(icu), "keep": keep_norm}
+
+
+def lock_keys(lock):
+    """The {source key: source-hash} map from a lock, tolerating both the v2 layout
+    ({"version":2,"settings":...,"keys":...}) and the legacy flat {key: hash} layout."""
+    if isinstance(lock, dict) and "version" in lock and isinstance(lock.get("keys"), dict):
+        return dict(lock["keys"])
+    return {k: v for k, v in (lock or {}).items() if isinstance(v, str)}
+
+
+def lock_settings(lock):
+    """The settings signature recorded in the lock, or None for a legacy/absent lock. None means
+    'unknown' — callers must NOT force a re-translate on it, so upgrading a v1 lock is seamless."""
+    if isinstance(lock, dict) and "version" in lock:
+        return lock.get("settings")
+    return None
+
+
+def build_lock(keys, settings):
+    """Assemble a v2 lock document: recorded settings + per-key source hashes."""
+    return {"version": LOCK_VERSION, "settings": settings, "keys": dict(keys)}
+
+
 def default_lock_path(source_path):
     """kaeris.lock lives next to the source file unless overridden."""
     return os.path.join(os.path.dirname(os.path.abspath(source_path)) or ".", "kaeris.lock")

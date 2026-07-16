@@ -331,8 +331,36 @@ class TestIncrementalLockPoisoning(ClientStubMixin, unittest.TestCase):
             cli.cmd_translate(args)
 
             # fr failed to merge -> greeting must stay stale-locked so a re-run retries fr
-            lock_after = inc.load_lock(lock)
+            lock_after = inc.lock_keys(inc.load_lock(lock))
             self.assertEqual(lock_after["greeting"], old_hash)
+
+
+class TestReproducibilitySettings(ClientStubMixin, unittest.TestCase):
+    """Changing tone/ICU/glossary must re-translate the whole locale (not leave a mix of old and
+    new settings); re-running with the SAME settings must stay byte-stable (nothing resubmitted)."""
+
+    def _prep(self, tmp):
+        en = os.path.join(tmp, "en.json")
+        with open(en, "w", encoding="utf-8") as f:
+            json.dump({"a": "Hello", "b": "Bye"}, f)
+        return en
+
+    def _run(self, en, tone):
+        args = cli.build_parser().parse_args(
+            ["translate", en, "--langs", "de", "--only-new", "--quiet", "--tone", tone])
+        cli.cmd_translate(args)
+
+    def test_settings_change_retranslates_all_keys(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            en = self._prep(tmp)
+            self._run(en, "neutral")                    # first run: both keys translated
+            self.assertEqual(len(FakeClient.calls), 1)
+            self._run(en, "neutral")                    # same settings: up to date, no new submit
+            self.assertEqual(len(FakeClient.calls), 1)
+            self._run(en, "formal")                     # tone changed: re-translate the whole locale
+            self.assertEqual(len(FakeClient.calls), 2)
+            resent = json.loads(FakeClient.calls[-1]["content"].decode("utf-8"))
+            self.assertEqual(set(resent), {"a", "b"})   # ALL keys resent, not just an edited subset
 
 
 # ── backward compat: single flat-en.json run must behave exactly as before ──

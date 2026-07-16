@@ -50,6 +50,39 @@ def test_flat_style_detection():
     assert inc.is_flat({"a": {"b": "x"}}) is False
 
 
+def test_changed_or_missing_detects_edited_and_missing():
+    source = {"a": "Hello", "b": "Bye", "c": "New"}
+    existing = {"a": "Hola", "b": "Adios"}          # c missing; a/b present
+    lock = {"a": inc.hash_value("Hello"), "b": inc.hash_value("Old text")}  # b's source was edited
+    todo = inc.changed_or_missing_keys(source, existing, lock)
+    assert set(todo) == {"b", "c"}                  # b edited (hash mismatch) + c missing
+    assert "a" not in todo                          # unchanged source, still locked -> reproduced verbatim
+
+
+def test_settings_signature_is_order_stable_and_normalized():
+    a = inc.settings_signature(tone="formal", icu=True, keep=["B", " A "])
+    b = inc.settings_signature(tone="formal", icu=True, keep=["A", "B"])
+    assert a == b                                   # keep order/whitespace doesn't matter
+    assert a != inc.settings_signature(tone="casual", icu=True, keep=["A", "B"])
+    assert a != inc.settings_signature(tone="formal", icu=False, keep=["A", "B"])
+
+
+def test_lock_v2_roundtrip_and_legacy_compat(tmp_path=None):
+    import tempfile, os as _os
+    keys = {"a": inc.hash_value("Hello")}
+    settings = inc.settings_signature(tone="formal", icu=False, keep=["KAERIS"])
+    with tempfile.TemporaryDirectory() as d:
+        p = _os.path.join(d, "kaeris.lock")
+        inc.dump_lock(inc.build_lock(keys, settings), p)
+        loaded = inc.load_lock(p)
+        assert inc.lock_keys(loaded) == keys        # keys survive
+        assert inc.lock_settings(loaded) == settings
+    # legacy flat lock: keys readable, settings unknown (None) so no forced re-translate on upgrade
+    legacy = {"a": inc.hash_value("Hello"), "b": inc.hash_value("Bye")}
+    assert inc.lock_keys(legacy) == legacy
+    assert inc.lock_settings(legacy) is None
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
