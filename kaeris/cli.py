@@ -88,7 +88,8 @@ def _config_comment(extra=None):
             "its namespace), langs (target language codes), "
             "keep (glossary terms to never translate), tone (neutral/formal/casual), "
             "icu (true if your strings use ICU MessageFormat plurals/select), "
-            "only_new (translate only new/missing/edited keys; JSON and ARB), lock (path to the "
+            "only_new (reproducible incremental: translate only new/missing/edited keys — and "
+            "re-translate everything if tone/icu/glossary changed; JSON and ARB), lock (path to the "
             "incremental lock file; default kaeris.lock next to the source), out (output "
             "directory), format (informational; auto-detected from the source file extension).")
     return base + " " + extra if extra else base
@@ -485,12 +486,21 @@ def _translate_incremental(client, path, out_dir, langs, args):
     source_hashes = inc.hash_flat(source_flat)
 
     lock_path = args.lock or inc.default_lock_path(path)
-    lock = inc.load_lock(lock_path)
+    lock_raw = inc.load_lock(lock_path)
     # The lock is a SINGLE per-source record meaning "this source hash is already
     # propagated to ALL target languages". Snapshot it once so every language
     # detects against the same baseline — never against a lock a previous
     # language mutated mid-loop (that bug silently skipped later languages).
-    detect_lock = dict(lock)
+    detect_lock = inc.lock_keys(lock_raw)
+    # Reproducibility: if the tone/ICU/glossary changed since the lock was written, an
+    # unchanged source string would still hash-match and be kept — leaving a locale that mixes
+    # old and new settings. Detect that and re-translate every key so the output stays consistent.
+    cur_settings = inc.settings_signature(_tone(args), args.icu, _glossary(args))
+    locked_settings = inc.lock_settings(lock_raw)
+    settings_changed = locked_settings is not None and locked_settings != cur_settings
+    if settings_changed:
+        info("Translation settings changed (tone/ICU/glossary) since the lock — "
+             "re-translating every key so the whole locale stays consistent")
     # Source keys NOT fully propagated to every language after this run — a key
     # is "broken" if any language it was due in failed to merge. Broken keys are
     # left stale-locked so the NEXT run retries the language(s) that failed.
@@ -502,7 +512,8 @@ def _translate_incremental(client, path, out_dir, langs, args):
         os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
         existing = inc.load_json(target_path) if os.path.isfile(target_path) else {}
         existing_flat = inc.flatten(existing) if existing else {}
-        todo = inc.changed_or_missing_keys(source_flat, existing_flat, detect_lock)
+        todo = (dict(source_flat) if settings_changed
+                else inc.changed_or_missing_keys(source_flat, existing_flat, detect_lock))
         if not todo:
             ok(f"{lang}: up to date ({len(existing_flat)} keys)")
             continue
@@ -538,10 +549,14 @@ def _translate_incremental(client, path, out_dir, langs, args):
     # current hash only if it is current in EVERY language processed (i.e. not in
     # `broken`). This folds in the old self-heal (keys already correct everywhere
     # get recorded) while never poisoning detection for a later language.
+    new_keys = dict(detect_lock)
     for k in source_hashes:
         if k not in broken:
-            lock[k] = source_hashes[k]
-    inc.dump_lock(lock, lock_path)
+            new_keys[k] = source_hashes[k]
+    # Record the new settings only if they were fully applied everywhere. If a settings change
+    # left some language broken, keep the OLD settings so the next run re-forces the stragglers.
+    final_settings = locked_settings if (settings_changed and broken) else cur_settings
+    inc.dump_lock(inc.build_lock(new_keys, final_settings), lock_path)
 
     if not any_work:
         ok("Everything already up to date — nothing to translate")
@@ -610,7 +625,8 @@ def build_parser():
                    help="Disable incremental mode (overrides kaeris.json's only_new)")
     t.add_argument("--lock", default=None,
                    help="Path to the incremental lock file used by --only-new to detect edited "
-                        "source strings (default: kaeris.lock next to the source file, or 'lock' "
+                        "source strings and setting changes (tone/icu/glossary), so output stays "
+                        "reproducible (default: kaeris.lock next to the source file, or 'lock' "
                         "in kaeris.json)")
     t.add_argument("--keep", default=None,
                    help="Comma-separated terms to never translate (brand/product names), e.g. --keep 'KAERIS,GitHub'"
