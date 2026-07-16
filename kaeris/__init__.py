@@ -4,4 +4,4 @@ Translate your app's strings files (JSON, YAML, .strings, .po, ARB, Android XML,
 into 46 languages from your terminal or CI/CD pipeline.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kaeris"
-version = "0.2.0"
+version = "0.2.1"
 description = "AI localization CLI — translate JSON/YAML/.strings/.po/ARB/Android XML into 46 languages"
 readme = "README.md"
 requires-python = ">=3.8"
