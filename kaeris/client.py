@@ -142,6 +142,36 @@ class KaerisClient:
             raise KaerisError(f"No job_id in response: {data}")
         return job_id
 
+    def parse(self, filename, content):
+        """Parse a locale file into its flat {key: value} map via /api/parse — no translation,
+        no cost, and it understands EVERY supported format, not just JSON. Used by the repo-native
+        health checks so a non-JSON source (.arb/.strings/.po/.xml/.ftl/…) can be diffed too."""
+        boundary = "----kaeris" + uuid.uuid4().hex
+        crlf = b"\r\n"
+        if not isinstance(content, bytes):
+            content = content.encode()
+        body = crlf.join([
+            b"--" + boundary.encode(),
+            b'Content-Disposition: form-data; name="file"; filename="' + filename.encode() + b'"',
+            b"Content-Type: application/octet-stream",
+            b"",
+            content,
+            b"--" + boundary.encode() + b"--",
+            b"",
+        ])
+        req = urllib.request.Request(
+            self.api_url + "/api/parse", data=body, method="POST",
+            headers=self._headers({"Content-Type": "multipart/form-data; boundary=" + boundary}),
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                data = json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            raise KaerisError(self._err_message(e))
+        except urllib.error.URLError as e:
+            raise KaerisError(f"Cannot reach {self.api_url}: {e.reason}")
+        return data.get("keys", {})
+
     def poll(self, job_id, on_progress=None, interval=1.0, max_wait=1800):
         """Poll a job until done/error. Returns the final status dict."""
         deadline = time.time() + max_wait
