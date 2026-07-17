@@ -60,6 +60,12 @@ class KaerisClient:
     def config(self):
         return json.loads(self._get("/api/config").decode())
 
+    def key_info(self):
+        """Tier, allowance and model for the configured API key (anonymous limits without one).
+        Includes `model_id` — the exact model this tier translates with, which the lock records
+        so a tier change (and the model swap it brings) is caught as a settings change."""
+        return json.loads(self._get("/api/key/info").decode())
+
     def _multipart(self, filename, content, languages, glossary=None,
                    verify=False, back_lang="en", tone="", icu=False, reuse=None):
         boundary = "----kaeris" + uuid.uuid4().hex

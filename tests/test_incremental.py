@@ -83,6 +83,65 @@ def test_lock_v2_roundtrip_and_legacy_compat(tmp_path=None):
     assert inc.lock_settings(legacy) is None
 
 
+def test_model_is_part_of_the_signature():
+    a = inc.settings_signature(tone="formal", icu=True, keep=["A"], model="openai/gpt-4o-mini")
+    assert a["model"] == "openai/gpt-4o-mini"
+    assert a != inc.settings_signature(tone="formal", icu=True, keep=["A"],
+                                       model="deepseek/deepseek-chat-v3-0324")
+
+
+def test_switching_model_forces_a_full_retranslate():
+    """The tier picks the model, so a Free->Pro upgrade swaps it without the user touching a
+    flag. Unnoticed, that leaves a locale half DeepSeek and half GPT-4o-mini."""
+    locked = inc.settings_signature(model="deepseek/deepseek-chat-v3-0324")
+    current = inc.settings_signature(model="openai/gpt-4o-mini")
+    assert inc.settings_changed(locked, current) is True
+
+
+def test_same_model_is_not_a_change():
+    s = inc.settings_signature(tone="formal", model="openai/gpt-4o-mini")
+    assert inc.settings_changed(s, dict(s)) is False
+
+
+def test_upgrading_from_a_v2_lock_does_not_bill_a_full_retranslate():
+    """A v2 lock predates model tracking. Treating its missing model as "changed" would
+    retranslate every key on the first run after a CLI upgrade — the customer pays for our
+    schema change."""
+    v2_settings = {"tone": "formal", "icu": False, "keep": ["KAERIS"]}   # no "model"
+    current = inc.settings_signature(tone="formal", icu=False, keep=["KAERIS"],
+                                     model="openai/gpt-4o-mini")
+    assert inc.settings_changed(v2_settings, current) is False
+    # a real tone change in the same v2 lock is still caught
+    assert inc.settings_changed(v2_settings, inc.settings_signature(
+        tone="casual", icu=False, keep=["KAERIS"], model="openai/gpt-4o-mini")) is True
+
+
+def test_unknown_current_model_never_forces_a_retranslate():
+    """The client couldn't reach /api/key/info, so it reports "". Uncertainty must not bill
+    the customer for a full run."""
+    locked = inc.settings_signature(model="openai/gpt-4o-mini")
+    assert inc.settings_changed(locked, inc.settings_signature(model="")) is False
+
+
+def test_legacy_lock_settings_never_force():
+    assert inc.settings_changed(None, inc.settings_signature(model="x")) is False
+
+
+def test_lock_v3_roundtrip():
+    import tempfile, os as _os
+    keys = {"a": inc.hash_value("Hello")}
+    settings = inc.settings_signature(tone="formal", icu=False, keep=["KAERIS"],
+                                      model="openai/gpt-4o-mini")
+    with tempfile.TemporaryDirectory() as d:
+        p = _os.path.join(d, "kaeris.lock")
+        inc.dump_lock(inc.build_lock(keys, settings), p)
+        loaded = inc.load_lock(p)
+        assert loaded["version"] == 3
+        assert inc.lock_keys(loaded) == keys
+        assert inc.lock_settings(loaded) == settings
+        assert inc.lock_settings(loaded)["model"] == "openai/gpt-4o-mini"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

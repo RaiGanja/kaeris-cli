@@ -473,6 +473,20 @@ def _arb_meta_key(flat_key):
     return flat_key.split(".", 1)[0].startswith("@")
 
 
+def _current_model(client):
+    """The exact model this key's tier translates with, recorded in the lock so a tier switch
+    (Free->Pro swaps DeepSeek for GPT-4o-mini) is caught as a settings change.
+
+    Best-effort: an older server has no model_id and an unreachable one has nothing at all.
+    Both report "" — settings_changed() treats an unknown model as "not changed", so the run
+    proceeds exactly as before rather than failing or billing a needless full retranslate.
+    """
+    try:
+        return client.key_info().get("model_id", "") or ""
+    except Exception:
+        return ""
+
+
 def _translate_incremental(client, path, out_dir, langs, args):
     is_arb = path.lower().endswith(".arb")
     source_obj = inc.load_json(path)
@@ -492,15 +506,20 @@ def _translate_incremental(client, path, out_dir, langs, args):
     # detects against the same baseline — never against a lock a previous
     # language mutated mid-loop (that bug silently skipped later languages).
     detect_lock = inc.lock_keys(lock_raw)
-    # Reproducibility: if the tone/ICU/glossary changed since the lock was written, an
+    # Reproducibility: if the tone/ICU/glossary/model changed since the lock was written, an
     # unchanged source string would still hash-match and be kept — leaving a locale that mixes
     # old and new settings. Detect that and re-translate every key so the output stays consistent.
-    cur_settings = inc.settings_signature(_tone(args), args.icu, _glossary(args))
+    cur_settings = inc.settings_signature(_tone(args), args.icu, _glossary(args),
+                                          _current_model(client))
     locked_settings = inc.lock_settings(lock_raw)
-    settings_changed = locked_settings is not None and locked_settings != cur_settings
+    settings_changed = inc.settings_changed(locked_settings, cur_settings)
     if settings_changed:
-        info("Translation settings changed (tone/ICU/glossary) since the lock — "
-             "re-translating every key so the whole locale stays consistent")
+        changed_model = (locked_settings or {}).get("model", "") != cur_settings["model"] \
+            and (locked_settings or {}).get("model", "")
+        why = ("the model changed (tier switch)" if changed_model
+               else "tone/ICU/glossary changed")
+        info(f"Translation settings changed since the lock — {why}. Re-translating every key "
+             "so the whole locale stays consistent")
     # Source keys NOT fully propagated to every language after this run — a key
     # is "broken" if any language it was due in failed to merge. Broken keys are
     # left stale-locked so the NEXT run retries the language(s) that failed.
