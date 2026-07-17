@@ -4,7 +4,7 @@ AI localization from your terminal. Translate your app's strings files into **46
 locally or in CI/CD. Format-aware, placeholder-safe, and **incremental** (only new keys).
 
 - **Zero dependencies** — pure Python stdlib, installs in a second
-- **10 formats** — JSON, YAML, `.strings`, `.po`, ARB, Android XML, CSV (Godot/Unity), XLIFF 1.2, Java `.properties`, .NET `.resx`
+- **11 formats** — JSON, YAML, `.strings`, `.po`, ARB, Android XML, CSV (Godot/Unity), XLIFF 1.2, Java `.properties`, .NET `.resx`, Mozilla Fluent `.ftl`
 - **Incremental** — `--only-new` translates just the keys you added, merges the rest
 - **Translation QA** — flags dropped placeholders & UI-overflow risk; `--verify` back-translates so you can check the meaning
 - **`kaeris check`** — an i18n firewall: fails CI if a locale is untranslated or placeholder-broken, no API call
@@ -169,8 +169,12 @@ the results back, preserving your existing translations and any non-string value
 booleans). No more re-translating (and re-paying for) the whole file every time you add one
 string, and no more silently-stale translations when you edit an existing English string.
 
-Change detection is powered by `kaeris.lock` — a small JSON file (dotted key → SHA-256 of the
-source string) written next to your source file after every incremental run. It's what lets
+Change detection is powered by `kaeris.lock` — a small JSON file written next to your source
+file after every incremental run. It records a SHA-256 of each source string **plus the
+settings that produced it**: your tone, your glossary, and the model. Change any of them and
+the whole locale is re-translated, so it never ends up a mix of two tones or two models — the
+model is picked by your plan, so upgrading Free → Pro re-translates rather than blending
+DeepSeek output with GPT-4o-mini. It's what lets
 `--only-new` notice an edited key even though it's still present in the target; without it, a
 plain "is this key missing?" check would skip the key and leave the old (now wrong) translation
 in place. Commit `kaeris.lock` alongside your source file so the check works across machines/CI.

@@ -1,6 +1,6 @@
 """KAERIS i18n — command-line client for AI localization.
 
-Translate your app's strings files (JSON, YAML, .strings, .po, ARB, Android XML, CSV, XLIFF, .properties, .resx)
+Translate your app's strings files (JSON, YAML, .strings, .po, ARB, Android XML, CSV, XLIFF, .properties, .resx, Fluent .ftl)
 into 46 languages from your terminal or CI/CD pipeline.
 """
 
