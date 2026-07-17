@@ -265,3 +265,74 @@ def _icu_faults(original: str, translated: str, lang: str) -> list[str]:
     for ex in sorted(src_ex - tr_ex):
         faults.append(f"ICU exact-match branch {ex} {{…}} was dropped in the translation")
     return faults
+
+# Formal/informal (T–V) register markers per base language. Informal is matched
+# case-insensitively; the German FORMAL "Sie/Ihnen" is case-SENSITIVE on purpose (lowercase
+# "sie" means she/they). Strong, unambiguous markers only — no mainstream TMS audits register
+# CONSISTENCY across a whole file with zero configuration.
+_REGISTER_MARKERS: dict[str, tuple[re.Pattern, re.Pattern]] = {
+    "de": (re.compile(r"\b(?:du|dich|dir|dein\w*)\b", re.I), re.compile(r"\bSie\b|\bIhnen\b")),
+    "fr": (re.compile(r"\b(?:tu|toi|ton|tes)\b", re.I), re.compile(r"\bvous\b|\bvotre\b|\bvos\b", re.I)),
+    "ru": (re.compile(r"\b(?:ты|тебя|тебе|тобой|твой|тво[яеёи]\w*)\b", re.I), re.compile(r"\b(?:вы|вас|вам|вами|ваш\w*)\b", re.I)),
+    "es": (re.compile(r"\b(?:tú|ti|tus)\b", re.I), re.compile(r"\b(?:usted|ustedes)\b", re.I)),
+    "it": (re.compile(r"\b(?:tu|tuo|tua|tuoi|tue)\b", re.I), re.compile(r"\bLei\b|\bLei,")),
+}
+
+def _register_faults(translated_flat: dict[str, str], lang: str) -> list[str]:
+    """FILE-LEVEL: a T–V language app should pick ONE register. Flags a file that mixes
+    informal (du/tu/ты) with formal (Sie/vous/вы) address. Deterministic; no TMS does this
+    without a per-project config. Conservative: fires only when BOTH registers appear >= 2
+    times, so a single quoted line or stray marker doesn't trip it."""
+    base = (lang or "").replace("_", "-").split("-")[0].lower()
+    markers = _REGISTER_MARKERS.get(base)
+    if not markers:
+        return []
+    inf_re, form_re = markers
+    text = "\n".join(translated_flat.values())
+    inf = len(inf_re.findall(text))
+    formal = len(form_re.findall(text))
+    if inf >= 2 and formal >= 2:
+        return [f"file mixes informal and formal address ({inf} informal vs {formal} formal markers) — pick one register"]
+    return []
+
+# Typical text expansion vs an English source, by base language (character-count proxy;
+# well-documented localization figures). Used to CALIBRATE the overflow heuristic per language
+# so a German label that grew the expected ~35% isn't flagged like an anomaly, while a language
+# that usually stays compact is caught when it unexpectedly runs long. Compact scripts (CJK) are
+# deliberately left to the client-side PIXEL measurement — character count under-represents their
+# rendered width, so the char heuristic here only tightens, never loosens, for them.
+_LANG_EXPANSION: dict[str, float] = {
+    "de": 1.35, "nl": 1.35, "fi": 1.5, "sv": 1.3, "da": 1.3, "no": 1.3, "hu": 1.35,
+    "fr": 1.25, "es": 1.25, "pt": 1.25, "it": 1.2, "ro": 1.3, "el": 1.3, "tr": 1.25,
+    "pl": 1.3, "cs": 1.3, "sk": 1.3, "ru": 1.2, "uk": 1.2, "vi": 1.3, "id": 1.2,
+    "zh": 0.4, "ja": 0.55, "ko": 0.7, "th": 0.9,
+}
+
+
+def _compute_overflow(source_flat: dict[str, str], translated_flat: dict[str, str],
+                      lang: str = "") -> list[dict]:
+    """Flag translations likely to overflow UI (short labels that grew a lot). Length is a strong,
+    free proxy for layout breakage. Language-aware: the trigger is scaled to the target language's
+    TYPICAL expansion, so an expected German/Finnish stretch doesn't cry wolf while a genuine
+    outlier (or a normally-compact language that ran long) still trips it."""
+    base = (lang or "").replace("_", "-").split("-")[0].lower()
+    expected = _LANG_EXPANSION.get(base, 1.2)
+    # Trigger 18% beyond the language's norm, but never below the original absolute 1.4 floor —
+    # a >40% stretch is a real risk for a tight UI in any language.
+    threshold = max(1.4, expected * 1.18)
+    typical_pct = round((expected - 1) * 100)
+    out = []
+    for k, src in source_flat.items():
+        tr = translated_flat.get(k, "")
+        if not isinstance(tr, str) or not src:
+            continue
+        slen, tlen = len(src), len(tr)
+        if slen == 0:
+            continue
+        ratio = tlen / slen
+        if slen <= 60 and tlen >= 8 and ratio >= threshold:
+            out.append({"key": k, "src": src, "tr": tr,
+                        "pct": round((ratio - 1) * 100),
+                        "typical": typical_pct})
+    out.sort(key=lambda x: x["pct"], reverse=True)
+    return out[:50]
