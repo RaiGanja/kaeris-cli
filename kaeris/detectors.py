@@ -336,3 +336,97 @@ def _compute_overflow(source_flat: dict[str, str], translated_flat: dict[str, st
                         "typical": typical_pct})
     out.sort(key=lambda x: x["pct"], reverse=True)
     return out[:50]
+
+# Wrong-language guard: for languages written in a distinctive script, a correct
+# translation must actually contain that script. If it doesn't, the model translated into
+# the wrong language (or not at all). Latin-script languages (de/fr/es…) share the alphabet
+# with English and can't be checked this way, so they are deliberately absent here.
+_LANG_SCRIPT_RE = {
+    "ru": re.compile(r"[Ѐ-ӿ]"), "uk": re.compile(r"[Ѐ-ӿ]"),
+    "bg": re.compile(r"[Ѐ-ӿ]"),
+    "el": re.compile(r"[Ͱ-Ͽ]"),
+    "ar": re.compile(r"[؀-ۿݐ-ݿ]"),
+    "fa": re.compile(r"[؀-ۿݐ-ݿ]"),
+    "he": re.compile(r"[֐-׿]"),
+    "zh": re.compile(r"[㐀-鿿]"),
+    "zh-Hant": re.compile(r"[㐀-鿿]"),
+    "ja": re.compile(r"[぀-ヿ㐀-鿿]"),
+    "ko": re.compile(r"[가-힣]"),
+    "th": re.compile(r"[฀-๿]"),
+    "hi": re.compile(r"[ऀ-ॿ]"),
+    "bn": re.compile(r"[ঀ-৿]"),
+}
+
+_URL_RE = re.compile(r"https?://\S+|www\.\S+")
+# A lowercase-initial Latin word of >= 4 letters — the signal that stripped text is natural
+# language ("save changes") rather than a Title-Case brand phrase ("GitHub Actions").
+_LOWERCASE_WORD_RE = re.compile(r"\b[a-zß-öø-ÿ][A-Za-zÀ-ÿ]{3,}\b")
+
+def _untranslated_string(original: str, translated: str, lang: str,
+                         glossary: list[str] | None = None) -> list[str]:
+    """Per-string leftover-source detector: an individual value the model left in the source
+    language. The file-level echo/script ratios (_translation_quality) miss this when only a
+    handful of strings slip. Non-Latin-script targets only (Latin-from-Latin can't be told
+    apart this way). Fires when the translation carries NO target-script character yet still
+    contains a real lowercase word (>= 4 letters) after placeholders/tags/URLs/numbers/glossary
+    are stripped — the lowercase word separates an untranslated SENTENCE ('save changes') from
+    a Title-Case brand phrase ('GitHub Actions') that legitimately stays in Latin."""
+    base = (lang or "").replace("_", "-").split("-")[0].lower()
+    rx = _LANG_SCRIPT_RE.get(lang) or _LANG_SCRIPT_RE.get(base)
+    if not rx or rx.search(translated):
+        return []
+    s = _PH_RE.sub(" ", translated)
+    s = _TAG_RE.sub(" ", s)
+    s = _URL_RE.sub(" ", s)
+    s = re.sub(r"\d+", " ", s)
+    for g in (glossary or []):
+        if g:
+            s = re.sub(re.escape(g), " ", s, flags=re.I)
+    if _LOWERCASE_WORD_RE.search(s):
+        return ["may be untranslated — no target-language script, still reads as source text"]
+    return []
+
+def _compute_consistency(source_flat: dict[str, str], translated_flat: dict[str, str]) -> list[dict]:
+    """Flag source terms that were translated DIFFERENTLY across keys that share the exact
+    same source text — usually a sign the same UI term (e.g. "Cancel") drifted into two
+    different translations ("Отмена" vs "Отменить") depending on context. Pure post-
+    processing over already-translated results — no extra LLM call, just string comparison.
+    Normalizes case/whitespace before comparing so trivial formatting differences (a trailing
+    space, a capital letter) don't create false positives. Limited to short, reusable
+    label-like strings (≤60 chars) — long sentences legitimately vary with context."""
+    # norm_source -> norm_translation -> [keys]
+    by_term: dict[str, dict[str, list[str]]] = {}
+    # norm_source -> norm_translation -> original-cased example (for display)
+    display: dict[str, dict[str, str]] = {}
+    src_display: dict[str, str] = {}
+    for k, src in source_flat.items():
+        if not isinstance(src, str):
+            continue
+        s = src.strip()
+        if not s or len(s) > 60:
+            continue
+        tr = translated_flat.get(k)
+        if not isinstance(tr, str) or not tr.strip():
+            continue
+        norm_s = " ".join(s.lower().split())
+        norm_t = " ".join(tr.strip().lower().split())
+        by_term.setdefault(norm_s, {}).setdefault(norm_t, []).append(k)
+        display.setdefault(norm_s, {}).setdefault(norm_t, tr.strip())
+        src_display.setdefault(norm_s, s)
+
+    out = []
+    for norm_s, variants in by_term.items():
+        if len(variants) < 2:
+            continue  # translated consistently everywhere it appears
+        keys: list[str] = []
+        variant_list: list[str] = []
+        for norm_t, ks in variants.items():
+            keys.extend(ks)
+            variant_list.append(display[norm_s][norm_t])
+        out.append({
+            "term": src_display[norm_s],
+            "variants": variant_list,
+            "keys": sorted(keys),
+        })
+    out.sort(key=lambda x: len(x["keys"]), reverse=True)
+    return out[:30]
