@@ -168,3 +168,100 @@ def _lost_tags(original: str, translated: str) -> list[str]:
         if n > 0:
             lost.extend([tg] * n)
     return sorted(lost)
+
+def _brace_spans(text: str) -> list[tuple[int, int]]:
+    """Balanced top-level {...} spans. Covers both simple named placeholders ({name})
+    and nested ICU MessageFormat ({count, plural, one {# item} other {# items}}) as ONE
+    opaque unit each — partially transforming ICU plural/select syntax would corrupt it,
+    so the whole construct is preserved verbatim rather than parsed.
+
+    Single pass, O(n): a stack of unmatched '{' positions; a '}' that empties the stack
+    closes a top-level span. (The old nested-scan was O(n^2) on unbalanced input like
+    "{"*N — each '{' rescanned to end-of-string — a CPU-DoS via /api/pseudo.)"""
+    spans: list[tuple[int, int]] = []
+    stack: list[int] = []
+    for i, ch in enumerate(text):
+        if ch == "{":
+            stack.append(i)
+        elif ch == "}" and stack:
+            start = stack.pop()
+            if not stack:               # closed a top-level brace
+                spans.append((start, i + 1))
+    return spans
+
+# ICU MessageFormat plural/select validation. CLDR cardinal categories a target language
+# REQUIRES beyond 'other' (always required, checked separately). Conservative on purpose —
+# only the unambiguous "extra" forms (Slavic few/many, Arabic) are listed, so a correct
+# one/other collapse (en/de/ja/…) never false-positives, and CLDR-version-sensitive additions
+# (Romance 'many') are deliberately omitted.
+_CLDR_REQUIRED: dict[str, set[str]] = {
+    "ru": {"one", "few", "many"}, "uk": {"one", "few", "many"}, "pl": {"one", "few", "many"},
+    "cs": {"one", "few"}, "sk": {"one", "few"}, "hr": {"one", "few"}, "sr": {"one", "few"},
+    "lt": {"one", "few"}, "ro": {"one", "few"},
+    # Arabic uses all six: 0 and 2 have their own forms, not just few/many.
+    "ar": {"zero", "one", "two", "few", "many"},
+    "lv": {"zero", "one"}, "sl": {"one", "two", "few"},
+    # Hebrew has a dual — 2 takes its own form.
+    "he": {"one", "two"},
+}
+_ICU_HEAD_RE = re.compile(r"\{\s*[\w\d_]+\s*,\s*(plural|selectordinal|select)\s*,")
+
+def _icu_blocks(text: str) -> list[tuple[str, str]]:
+    """Top-level ICU plural/select/selectordinal blocks as (type, full_segment). A block that
+    became brace-unbalanced (broken by translation) is simply not returned by _brace_spans —
+    so a drop in block count between source and translation flags a broken/lost construct."""
+    out = []
+    for s, e in _brace_spans(text):
+        seg = text[s:e]
+        m = _ICU_HEAD_RE.match(seg)
+        if m:
+            out.append((m.group(1), seg))
+    return out
+
+def _icu_arms(seg: str) -> tuple[str, set, set] | None:
+    """(type, category_keywords, exact_matches) for one ICU block. Categories are CLDR
+    keywords (one/few/many/other/…) or select cases; exacts are literal =N branches."""
+    m = _ICU_HEAD_RE.match(seg)
+    if not m:
+        return None
+    body = seg[m.end():-1]                # arms only: after "{name, type," up to the final "}"
+    keywords, exacts = set(), set()
+    for s, e in _brace_spans(body):
+        km = re.search(r"(=\d+|[\w]+)\s*$", body[:s])   # token right before this arm's {…}
+        if km:
+            tok = km.group(1)
+            (exacts if tok.startswith("=") else keywords).add(tok)
+    return m.group(1), keywords, exacts
+
+def _icu_faults(original: str, translated: str, lang: str) -> list[str]:
+    """Deterministic ICU MessageFormat validation — a class Crowdin/Lokalise/Phrase only
+    enforce inside their editor when the string is registered as a plural. Flags: a plural/
+    select construct dropped or brace-broken by the translation; a missing required 'other'
+    arm (ICU won't compile); a dropped literal =N exact-match branch (e.g. the =0 'empty'
+    case); and a plural missing a CLDR form the TARGET language requires (Russian few/many)."""
+    src = _icu_blocks(original)
+    tr = _icu_blocks(translated)
+    faults: list[str] = []
+    if len(src) > len(tr):
+        faults.append(f"ICU plural/select construct dropped or broken ({len(src)} in source, {len(tr)} in translation)")
+    base = (lang or "").replace("_", "-").split("-")[0].lower()
+    for typ, seg in tr:
+        arms = _icu_arms(seg)
+        if not arms:
+            continue
+        _, kws, _exacts = arms
+        if "other" not in kws:
+            faults.append(f"ICU {typ} is missing the required 'other' branch")
+        if typ in ("plural", "selectordinal"):
+            missing = _CLDR_REQUIRED.get(base, set()) - kws
+            if missing:
+                faults.append(f"ICU plural is missing the {'/'.join(sorted(missing))} form(s) {base} requires")
+    # dropped literal =N branches (pair blocks positionally when counts match; else union)
+    def _exacts(blocks):
+        return [a[2] for a in (_icu_arms(s) for _, s in blocks) if a]
+    se, te = _exacts(src), _exacts(tr)
+    src_ex = set().union(*se) if se else set()
+    tr_ex = set().union(*te) if te else set()
+    for ex in sorted(src_ex - tr_ex):
+        faults.append(f"ICU exact-match branch {ex} {{…}} was dropped in the translation")
+    return faults
