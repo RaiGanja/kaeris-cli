@@ -430,3 +430,19 @@ def _compute_consistency(source_flat: dict[str, str], translated_flat: dict[str,
         })
     out.sort(key=lambda x: len(x["keys"]), reverse=True)
     return out[:30]
+
+def _lost_glossary(original: str, translated: str, glossary: list[str] | None) -> list[str]:
+    """Glossary/brand terms present in the source that did NOT survive (case-insensitive)
+    in the translation. A deterministic FACT — the model altered or dropped a term the user
+    locked to stay verbatim across languages. Biased to UNDER-flag (only reports a term whose
+    text is genuinely absent from the output), so it never fabricates a violation."""
+    if not glossary:
+        return []
+    src = original.lower()
+    tr = translated.lower()
+    out = []
+    for term in glossary:
+        t = (term or "").strip()
+        if t and t.lower() in src and t.lower() not in tr:
+            out.append(t)
+    return sorted(set(out))
