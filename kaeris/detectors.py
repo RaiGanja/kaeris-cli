@@ -112,3 +112,59 @@ def _numeric_faults(original: str, translated: str) -> list[str]:
         for num in sorted(src - tr):
             faults.append(f"number {src_disp[num]} from the source is missing or changed in the translation")
     return faults
+
+# A `&`-entity whose leading `&` was itself re-escaped: &amp;amp; / &amp;lt; / &amp;#39; …
+# This is the classic MT round-trip corruption — the model saw `&amp;`, "translated" the
+# text, and re-encoded the ampersand, so what ships renders the literal "&amp;" to the user.
+_DOUBLE_ENC_RE = re.compile(r"&amp;(?:amp|lt|gt|quot|apos|nbsp|#\d{1,7}|#x[0-9a-fA-F]{1,6});")
+# `\u` not followed by exactly 4 hex digits — a mangled JSON/JS unicode escape.
+_BROKEN_UNICODE_ESC_RE = re.compile(r"\\u(?![0-9a-fA-F]{4})")
+
+def _entity_faults(original: str, translated: str) -> list[str]:
+    """Deterministic escape/entity corruption a meaning-judge and a placeholder check both
+    miss: an HTML entity double-encoded during the round-trip (&amp; → &amp;amp;, so the user
+    literally sees "&amp;"), and a \\uXXXX escape mangled into non-hex. Only NEW corruption is
+    flagged — a double-encoding already present in the source is left alone."""
+    faults: list[str] = []
+    src = collections.Counter(_DOUBLE_ENC_RE.findall(original))
+    tr = collections.Counter(_DOUBLE_ENC_RE.findall(translated))
+    for ent in sorted(tr - src):
+        faults.append(f"double-encoded entity {ent} — the & was re-escaped (renders literally)")
+    if _BROKEN_UNICODE_ESC_RE.search(translated) and not _BROKEN_UNICODE_ESC_RE.search(original):
+        faults.append("broken \\u escape — a unicode escape was mangled to non-hex")
+    return faults
+
+# Inline markup that must survive translation: HTML/XML tags — <b>, </b>, <a href="…">,
+# <br/>, <x id="1"/> — plus i18next <Trans> numeric tags <0>, </1>. Requires a letter or
+# digit right after '<' (or '</') immediately followed by tag chars then '>', so "a < b" and
+# "I <3 you" are NOT read as tags (no closing '>'). We compare the MULTISET of normalized tag
+# shapes (name + open/close/self-close, attributes stripped) so a dropped/duplicated tag is
+# caught while attribute-order or inner-text changes are not false positives.
+_TAG_RE = re.compile(r"</?[a-zA-Z0-9][\w:-]*(?:\s[^<>]*?)?/?>")
+
+def _find_tags(text: str) -> list[str]:
+    out: list[str] = []
+    for m in _TAG_RE.finditer(text):
+        raw = m.group(0)
+        name = re.match(r"</?\s*([a-zA-Z0-9][\w:-]*)", raw).group(1)
+        if raw.startswith("</"):
+            out.append(f"</{name}>")
+        elif raw.rstrip().endswith("/>"):
+            out.append(f"<{name}/>")
+        else:
+            out.append(f"<{name}>")
+    return out
+
+def _lost_tags(original: str, translated: str) -> list[str]:
+    """Tags present in `original` but missing (or fewer) in `translated`."""
+    o: dict[str, int] = {}
+    for tg in _find_tags(original):
+        o[tg] = o.get(tg, 0) + 1
+    for tg in _find_tags(translated):
+        if tg in o:
+            o[tg] -= 1
+    lost: list[str] = []
+    for tg, n in o.items():
+        if n > 0:
+            lost.extend([tg] * n)
+    return sorted(lost)
