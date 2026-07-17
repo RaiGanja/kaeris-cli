@@ -24,6 +24,12 @@ _PH_RE = re.compile(
     r"|:[A-Za-z]\w*:"   # Rails-ish :name: — must START with a letter so time (10:30:45) and ratios (3:4:5) aren't mis-read as placeholders
 )
 
+def _find_placeholders(text: str) -> set[str]:
+    return set(_PH_RE.findall(text))
+
+def _lost_placeholders(original: str, translated: str) -> list[str]:
+    return sorted(_find_placeholders(original) - _find_placeholders(translated))
+
 def _placeholder_type_faults(original: str, translated: str) -> list[str]:
     """Deterministic placeholder faults a SET-based check (_lost_placeholders) cannot express:
       1. a placeholder the model INVENTED — present in the translation, absent from the
@@ -446,3 +452,50 @@ def _lost_glossary(original: str, translated: str, glossary: list[str] | None) -
         if t and t.lower() in src and t.lower() not in tr:
             out.append(t)
     return sorted(set(out))
+
+
+ERROR = "error"
+WARN = "warn"
+
+
+def string_faults(src, tgt, lang, glossary=None):
+    """All per-string faults between one source value and one target value,
+    each tagged error (breaks build) or warn (advisory). Pure/offline."""
+    if not isinstance(src, str) or not isinstance(tgt, str):
+        return []
+    out = []
+    for ph in _lost_placeholders(src, tgt):
+        out.append({"severity": ERROR, "msg": f"lost placeholder {ph}"})
+    for msg in _placeholder_type_faults(src, tgt):
+        out.append({"severity": ERROR, "msg": msg})
+    for msg in _numeric_faults(src, tgt):
+        out.append({"severity": ERROR, "msg": msg})
+    for msg in _entity_faults(src, tgt):
+        out.append({"severity": ERROR, "msg": msg})
+    for msg in _icu_faults(src, tgt, lang):
+        out.append({"severity": ERROR, "msg": msg})
+    for tag in _lost_tags(src, tgt):
+        out.append({"severity": ERROR, "msg": f"lost inline tag {tag}"})
+    if glossary:
+        for term in _lost_glossary(src, tgt, glossary):
+            out.append({"severity": ERROR, "msg": f"glossary term dropped: {term}"})
+    for msg in _untranslated_string(src, tgt, lang, glossary):
+        out.append({"severity": WARN, "msg": msg})
+    return out
+
+
+def file_faults(source_flat, translated_flat, lang):
+    """File-level faults over one target locale (register, consistency, overflow).
+    All advisory (warn). Pure/offline."""
+    out = []
+    for msg in _register_faults(translated_flat, lang):
+        out.append({"severity": WARN, "msg": msg})
+    for item in _compute_consistency(source_flat, translated_flat):
+        out.append({"severity": WARN,
+                    "msg": f"inconsistent translation of \"{item['term']}\" across "
+                           f"{len(item['keys'])} keys: {', '.join(item['variants'])}"})
+    for item in _compute_overflow(source_flat, translated_flat, lang):
+        out.append({"severity": WARN,
+                    "msg": f"{item['key']}: translation +{item['pct']}% vs source "
+                           f"(typical +{item['typical']}%) — may overflow UI"})
+    return out
