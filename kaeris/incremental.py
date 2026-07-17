@@ -94,21 +94,51 @@ def changed_or_missing_keys(source_flat, existing_flat, lock):
     return todo
 
 
-LOCK_VERSION = 2
+LOCK_VERSION = 3
 
 
-def settings_signature(tone="", icu=False, keep=None):
-    """Stable signature of the translation-affecting inputs the CLI controls: tone, ICU handling
-    and the glossary. A change to any of these means the WHOLE locale should be retranslated so
-    it stays internally consistent (e.g. switching neutral→formal must not leave a mix of both) —
-    that's the reproducibility contract, beyond just tracking edited source strings."""
+def settings_signature(tone="", icu=False, keep=None, model=""):
+    """Stable signature of everything that changes the translation: tone, ICU handling, the
+    glossary, and the model that produced it. A change to any of these means the WHOLE locale
+    should be retranslated so it stays internally consistent (e.g. switching neutral→formal must
+    not leave a mix of both) — that's the reproducibility contract, beyond just tracking edited
+    source strings.
+
+    The model belongs here for the same reason and more strongly: it is the single biggest
+    influence on the output. It also changes on its own, without the user touching a flag —
+    the tier picks it (MODEL_FREE vs MODEL_PREMIUM), so upgrading Free→Pro silently switched
+    models and left a locale that is half DeepSeek and half GPT-4o-mini while the lock still
+    reported everything up to date. Recording it means the upgrade retranslates instead.
+    """
     keep_norm = sorted(t.strip() for t in (keep or []) if t.strip())
-    return {"tone": tone or "", "icu": bool(icu), "keep": keep_norm}
+    return {"tone": tone or "", "icu": bool(icu), "keep": keep_norm, "model": model or ""}
+
+
+def settings_changed(locked, current):
+    """True if the lock's recorded settings differ from the current run's in a way that
+    requires retranslating the whole locale.
+
+    Absent/legacy settings (None) mean "unknown", never "changed" — a v1 lock has no
+    signature at all, so upgrading must not force a full retranslate.
+
+    Fields the lock never recorded are treated the same way. A v2 lock predates model
+    tracking, and a client that could not reach /api/key/info reports "" — in neither case
+    can we honestly claim the model changed, and forcing a full (billable) retranslate on our
+    own uncertainty would be worse than the drift it guards against. Once both sides know the
+    model, a real switch is caught.
+    """
+    if not isinstance(locked, dict):
+        return False
+    for field in ("tone", "icu", "keep"):
+        if field in locked and locked[field] != current.get(field):
+            return True
+    locked_model, current_model = locked.get("model", ""), current.get("model", "")
+    return bool(locked_model and current_model and locked_model != current_model)
 
 
 def lock_keys(lock):
-    """The {source key: source-hash} map from a lock, tolerating both the v2 layout
-    ({"version":2,"settings":...,"keys":...}) and the legacy flat {key: hash} layout."""
+    """The {source key: source-hash} map from a lock, tolerating the versioned layout
+    ({"version":N,"settings":...,"keys":...}) and the legacy flat {key: hash} layout."""
     if isinstance(lock, dict) and "version" in lock and isinstance(lock.get("keys"), dict):
         return dict(lock["keys"])
     return {k: v for k, v in (lock or {}).items() if isinstance(v, str)}
@@ -123,7 +153,7 @@ def lock_settings(lock):
 
 
 def build_lock(keys, settings):
-    """Assemble a v2 lock document: recorded settings + per-key source hashes."""
+    """Assemble a lock document: recorded settings + per-key source hashes."""
     return {"version": LOCK_VERSION, "settings": settings, "keys": dict(keys)}
 
 
