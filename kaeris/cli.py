@@ -255,7 +255,17 @@ def cmd_check(args):
         return 2
 
     out_dir = args.out or config.get("out") or os.path.dirname(os.path.abspath(path))
-    pattern = args.pattern or "{lang}.json"
+    source_lang = config.get("source_lang") or "en"
+    _target_path.warned = False  # warn at most once per check run
+
+    def _resolve_target(lang):
+        # No explicit --pattern: resolve exactly like `kaeris translate` writes, so a
+        # namespace layout (locales/<lang>/translation.json, the shipped i18next preset)
+        # is found instead of a phantom locales/<lang>.json. An explicit --pattern is an
+        # override for non-standard layouts.
+        if args.pattern:
+            return os.path.join(out_dir, args.pattern.format(lang=lang))
+        return _target_path(path, lang, out_dir, source_lang)
 
     try:
         source_obj = inc.load_json(path)
@@ -269,7 +279,7 @@ def cmd_check(args):
         source_obj = _strip_arb_meta(source_obj)
 
     def load_target(lang):
-        target_path = os.path.join(out_dir, pattern.format(lang=lang))
+        target_path = _resolve_target(lang)
         if not os.path.isfile(target_path):
             return None
         try:
@@ -299,7 +309,7 @@ def cmd_check(args):
     if not args.json:
         for lang in langs:
             if lang in result["missing_files"]:
-                err(f"{lang}: locale file not found ({os.path.join(out_dir, pattern.format(lang=lang))})")
+                err(f"{lang}: locale file not found ({_resolve_target(lang)})")
                 continue
             missing = result["missing"].get(lang) or []
             extra = result["extra"].get(lang) or []
