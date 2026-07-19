@@ -57,9 +57,9 @@ def _placeholder_type_faults(original: str, translated: str) -> list[str]:
 # Digit runs incl. non-ASCII digits (Arabic-Indic, Persian, Devanagari) and locale
 # grouping/decimal separators, so "1,000" / "1.000" / "1 000" and "١٢٣" are all seen.
 _NUM_RUN_RE = re.compile(
-    r"[0-9٠-٩۰-۹०-९]"
-    r"[0-9٠-٩۰-۹०-९.,'   ]*")
-_DIGIT_TRANS = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹०१२३४५६७८९", "0123456789" * 3)
+    r"[0-9٠-٩۰-۹०-९০-৯๐-๙]"
+    r"[0-9٠-٩۰-۹०-९০-৯๐-๙.,'   ]*")
+_DIGIT_TRANS = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹०१२३४५६७८९০১২৩৪৫৬৭৮৯๐๑๒๓๔๕๖๗๘๙", "0123456789" * 5)
 
 # Genuine decimal separators (comma/dot/Swiss apostrophe). Spaces/NBSP are grouping-only, so
 # they never need to be considered when deciding "decimal vs thousands".
@@ -258,7 +258,11 @@ def _icu_faults(original: str, translated: str, lang: str) -> list[str]:
         _, kws, _exacts = arms
         if "other" not in kws:
             faults.append(f"ICU {typ} is missing the required 'other' branch")
-        if typ in ("plural", "selectordinal"):
+        # Only cardinal `plural`. _CLDR_REQUIRED holds CARDINAL categories; ordinal ones
+        # differ, so applying them to `selectordinal` false-flags a correct ordinal (Russian
+        # ordinals need only `other`). We have no ordinal table, so skip completeness for
+        # selectordinal rather than warn wrongly (the 'other'-branch check above still applies).
+        if typ == "plural":
             missing = _CLDR_REQUIRED.get(base, set()) - kws
             if missing:
                 faults.append(f"ICU plural is missing the {'/'.join(sorted(missing))} form(s) {base} requires")
