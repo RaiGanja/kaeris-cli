@@ -90,22 +90,40 @@ kaeris check --json                       # machine-readable output for CI/agent
 kaeris check --ci                         # same exit-code contract; a stable, named entry point for pipelines
 ```
 
-It reports two kinds of problems:
+It runs the same deterministic quality detectors that power the web app — offline, with no
+account and no network. **RED** problems fail the build; **YELLOW** are advisory (pass
+`--strict` to fail on those too).
+
+**RED — breaks the build (non-zero exit):**
 
 - **Missing keys** — a key exists in the source but not in a target (untranslated).
 - **Placeholder mismatch** — a target string's placeholders (`{name}`, `%s`, `%d`, `{{x}}`,
-  ICU `{count, plural, ...}`) don't match the source's — a translation that dropped, renamed,
-  or hallucinated a placeholder will crash or silently drop data at runtime.
+  `${x}`, ICU `{count, plural, ...}`) don't match the source's — dropped, renamed, or
+  hallucinated placeholders crash or silently drop data at runtime.
+- **Number drift** — a number in the source changed or vanished in the translation
+  (`Delete 5 files` → `Delete 50 files`).
+- **Broken entities / encoding** — double-encoded (`&amp;amp;`) or malformed `\u` escapes.
+- **Lost inline tags** — an HTML/markup tag (`<b>`, `</b>`, …) present in the source is gone.
+- **ICU / CLDR plural completeness** — the target language is missing a plural category its
+  CLDR rules require.
+- **Glossary term dropped** (opt-in) — a term listed under `glossary` in kaeris.json isn't
+  carried into the translation.
 
-Extra/stale keys (present in a target but not the source) are reported as a warning; pass
-`--strict` to fail on those too. Exit codes: `0` clean, `1` a problem was found, `2` bad
+**YELLOW — advisory warnings (`--strict` to fail):**
+
+- **Untranslated leftover** — the target still reads as the source language.
+- **Register / casing drift**, **cross-key inconsistency**, and **UI-overflow risk** (a
+  translation much longer than its source, relative to that language's typical expansion).
+- **Extra/stale keys** — present in a target but not the source.
+
+Exit codes: `0` clean, `1` a RED problem was found (or a YELLOW under `--strict`), `2` bad
 usage (source not found, no languages given, etc.) — drop it straight into CI:
 
 ```yaml
 - run: kaeris check --source locales/en.json --langs es,fr,de,ja --out locales
 ```
 
-JSON-only for now; other formats are on the roadmap.
+JSON and ARB for now (ARB `@`-metadata is ignored); more formats land next release.
 
 ## CI/CD (GitHub Actions) — translations as PRs, plus an i18n firewall
 
