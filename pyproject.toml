@@ -12,9 +12,12 @@ license = { text = "MIT" }
 authors = [{ name = "KAERIS" }]
 keywords = ["i18n", "l10n", "localization", "translation", "ai", "cli"]
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Topic :: Software Development :: Localization",
+    "Topic :: Software Development :: Internationalization",
     "Environment :: Console",
 ]
 # Zero runtime dependencies — stdlib only.
