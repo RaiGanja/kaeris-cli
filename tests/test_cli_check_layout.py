@@ -39,6 +39,19 @@ class TestCliCheckLayout(unittest.TestCase):
             code = cli.cmd_check(args)
             self.assertEqual(code, 0)
 
+    def test_flutter_arb_prefix_layout_found(self):
+        # Flutter gen-l10n: lib/l10n/app_en.arb -> lib/l10n/app_de.arb. Before the fix this
+        # fell through to lib/l10n/de/app_en.arb and check falsely reported the locale missing.
+        with tempfile.TemporaryDirectory() as t:
+            d = os.path.join(t, "lib", "l10n")
+            src = os.path.join(d, "app_en.arb")
+            tgt = os.path.join(d, "app_de.arb")
+            self._write({"@@locale": "en", "greet": "Hi"}, src)
+            self._write({"@@locale": "de", "greet": "Hallo"}, tgt)
+            args = cli.build_parser().parse_args(
+                ["check", "--source", src, "--langs", "de", "--out", d, "--json"])
+            self.assertEqual(cli.cmd_check(args), 0)   # must find app_de.arb
+
     def test_explicit_pattern_still_honored(self):
         with tempfile.TemporaryDirectory() as t:
             src = os.path.join(t, "en.json")
