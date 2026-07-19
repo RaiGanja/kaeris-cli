@@ -13,6 +13,7 @@ JSON only for now (matches --only-new's scope elsewhere in the CLI).
 import re
 
 from .incremental import flatten_all
+from . import detectors as det
 
 # Percent/dollar-style placeholders (order matters: positional and %@ must be
 # tried before the bare %s/%d/... class since e.g. "%1$s" would otherwise
@@ -130,7 +131,7 @@ def diff_locale(source_flat, target_flat):
     return missing, extra, issues
 
 
-def check_locales(source_obj, langs, load_target):
+def check_locales(source_obj, langs, load_target, glossary=None):
     """Run the check across every target language.
 
     `load_target(lang)` -> parsed JSON object for that language, or None if
@@ -140,9 +141,12 @@ def check_locales(source_obj, langs, load_target):
     Returns the result dict (this is exactly what --json prints):
       {"ok": bool, "missing": {lang: [keys]}, "extra": {lang: [keys]},
        "placeholder_issues": [{"lang", "key", "missing", "added"}],
-       "missing_files": [lang, ...]}
-    `ok` is True only if there are no missing keys and no placeholder issues
-    (extra/stale keys never affect `ok` — that's what --strict is for).
+       "missing_files": [lang, ...],
+       "faults": [{"lang", "key", "severity": "error", "msg"}],
+       "warnings": [{"lang", "key"?, "severity": "warn", "msg"}]}
+    `ok` is True only if there are no missing keys, no placeholder issues and
+    no RED detector faults (extra/stale keys and YELLOW warnings never affect
+    `ok` — that's what --strict is for).
     """
     source_flat = flatten_all(source_obj)
 
@@ -152,6 +156,8 @@ def check_locales(source_obj, langs, load_target):
         "extra": {},
         "placeholder_issues": [],
         "missing_files": [],
+        "faults": [],
+        "warnings": [],
     }
 
     for lang in langs:
@@ -172,5 +178,20 @@ def check_locales(source_obj, langs, load_target):
             result["placeholder_issues"].append({"lang": lang, **issue})
         if issues:
             result["ok"] = False
+        # Per-string detectors on shared keys (RED faults + YELLOW warnings).
+        for key, src_val in source_flat.items():
+            tgt_val = target_flat.get(key)
+            if not isinstance(src_val, str) or not isinstance(tgt_val, str):
+                continue
+            for f in det.string_faults(src_val, tgt_val, lang, glossary):
+                rec = {"lang": lang, "key": key, "msg": f["msg"]}
+                if f["severity"] == det.ERROR:
+                    result["faults"].append({**rec, "severity": "error"})
+                    result["ok"] = False
+                else:
+                    result["warnings"].append({**rec, "severity": "warn"})
+        # File-level detectors (overflow / register / consistency) — YELLOW.
+        for f in det.file_faults(source_flat, target_flat, lang):
+            result["warnings"].append({"lang": lang, "msg": f["msg"], "severity": "warn"})
 
     return result
