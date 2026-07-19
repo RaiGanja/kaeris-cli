@@ -152,6 +152,8 @@ def _target_path(src_path, lang, out_dir, source_lang):
 
     - Flat: locales/en.json -> locales/<lang>.json (today's behavior).
     - Namespace/dir: locales/en/common.json -> locales/<lang>/common.json.
+    - Prefixed file: app_en.arb -> app_de.arb (Flutter gen-l10n), messages_en.properties ->
+      messages_de.properties (Java bundles).
     - Fallback (layout not detected): <out_dir or src dir>/<lang>/<basename>.
     """
     stem, ext = os.path.splitext(os.path.basename(src_path))
@@ -176,6 +178,15 @@ def _target_path(src_path, lang, out_dir, source_lang):
         # src_dir's split keeps the leading separator instead of being dropped.
         new_dir = os.sep.join(new_segs)
         return os.path.join(new_dir, os.path.basename(src_path))
+
+    # Prefixed single-file convention: the stem is <prefix>_<source_lang>, so the target keeps
+    # the prefix and swaps the language — app_en.arb -> app_de.arb (Flutter), messages_en ->
+    # messages_de. Without this the Flutter/Java layouts fell through to the nested fallback and
+    # `kaeris translate`/`check` wrote/looked in the wrong place.
+    if stem.endswith("_" + source_lang) and len(stem) > len(source_lang) + 1:
+        prefix = stem[: -(len(source_lang) + 1)]
+        d = out_dir if out_dir else src_dir
+        return os.path.join(d, f"{prefix}_{lang}{ext}")
 
     if not _target_path.warned:
         warn(f"Could not detect a known locale-file layout for '{src_path}' "
