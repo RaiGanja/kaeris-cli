@@ -233,10 +233,18 @@ def cmd_check(args):
     if not path or not os.path.isfile(path):
         err(f"Source file not found: {path or raw_path}")
         return 2
-    if not path.lower().endswith(".json"):
-        err(f"kaeris check currently supports JSON only (got {path}) — "
-            "other formats are on the roadmap")
+    if not path.lower().endswith((".json", ".arb")):
+        err(f"kaeris check currently supports JSON and ARB (got {path}) — "
+            "other formats land next release")
         return 2
+    is_arb = path.lower().endswith(".arb")
+
+    def _strip_arb_meta(obj):
+        # ARB non-translatable metadata is top-level '@'-prefixed (@@locale, @key).
+        # Drop it so it isn't flattened into spurious missing/extra keys.
+        if isinstance(obj, dict):
+            return {k: v for k, v in obj.items() if not str(k).startswith("@")}
+        return obj
 
     if args.langs:
         langs = [l.strip() for l in args.langs.split(",") if l.strip()]
@@ -257,6 +265,8 @@ def cmd_check(args):
     if not isinstance(source_obj, dict):
         err(f"Invalid source file {path}: expected a JSON object")
         return 2
+    if is_arb:
+        source_obj = _strip_arb_meta(source_obj)
 
     def load_target(lang):
         target_path = os.path.join(out_dir, pattern.format(lang=lang))
@@ -270,14 +280,21 @@ def cmd_check(args):
         if not isinstance(obj, dict):
             warn(f"{lang}: {target_path} is not a JSON object — treating as missing")
             return None
-        return obj
+        return _strip_arb_meta(obj) if is_arb else obj
 
-    result = chk.check_locales(source_obj, langs, load_target)
+    glossary = config.get("glossary") or None
+    result = chk.check_locales(source_obj, langs, load_target, glossary)
 
+    faults = result.get("faults", [])
+    warnings = result.get("warnings", [])
     n_missing = sum(len(v) for v in result["missing"].values())
     n_extra = sum(len(v) for v in result["extra"].values())
     n_ph = len(result["placeholder_issues"])
-    fail = not result["ok"] or (args.strict and n_extra)
+    n_faults = len(faults)
+    n_warn = len(warnings)
+    # RED (missing / placeholder mismatch / detector fault) already flips result["ok"].
+    # --strict escalates the soft signals (extra/stale keys, YELLOW warnings) to a failure.
+    fail = (not result["ok"]) or (args.strict and (n_extra or n_warn))
 
     if not args.json:
         for lang in langs:
@@ -287,7 +304,9 @@ def cmd_check(args):
             missing = result["missing"].get(lang) or []
             extra = result["extra"].get(lang) or []
             issues = [i for i in result["placeholder_issues"] if i["lang"] == lang]
-            if not missing and not extra and not issues:
+            lang_faults = [f for f in faults if f["lang"] == lang]
+            lang_warns = [w for w in warnings if w["lang"] == lang]
+            if not missing and not extra and not issues and not lang_faults and not lang_warns:
                 ok(f"{lang}: complete & placeholder-safe")
                 continue
             if missing:
@@ -298,6 +317,15 @@ def cmd_check(args):
                 for i in issues:
                     print(f"    {i['key']}: missing {i['missing'] or '-'}, added {i['added'] or '-'}",
                           file=sys.stderr)
+            if lang_faults:
+                err(f"{lang}: {len(lang_faults)} translation fault(s):")
+                for f in lang_faults:
+                    print(f"    {f.get('key', '')}: {f['msg']}", file=sys.stderr)
+            if lang_warns:
+                level = err if args.strict else warn
+                level(f"{lang}: {len(lang_warns)} warning(s):")
+                for w in lang_warns:
+                    print(f"    {w.get('key', '')}: {w['msg']}".rstrip(), file=sys.stderr)
             if extra:
                 level = err if args.strict else warn
                 level(f"{lang}: {len(extra)} extra/stale key(s): {', '.join(extra[:10])}"
@@ -309,9 +337,15 @@ def cmd_check(args):
                 parts.append(f"{n_missing} missing key{'s' if n_missing != 1 else ''}")
             if n_ph:
                 parts.append(f"{n_ph} placeholder mismatch{'es' if n_ph != 1 else ''}")
+            if n_faults:
+                parts.append(f"{n_faults} translation fault{'s' if n_faults != 1 else ''}")
+            if args.strict and n_warn:
+                parts.append(f"{n_warn} warning{'s' if n_warn != 1 else ''} (--strict)")
             if args.strict and n_extra:
                 parts.append(f"{n_extra} extra key{'s' if n_extra != 1 else ''} (--strict)")
             err(", ".join(parts))
+        elif n_warn:
+            warn(f"{n_warn} warning(s) — non-blocking (use --strict to fail on them)")
         else:
             ok("all locales complete & placeholder-safe")
 
@@ -674,7 +708,7 @@ def build_parser():
                     "bug that silently breaks the app at runtime. Exits non-zero so it can gate "
                     "a CI merge. Reads ./kaeris.json for source/langs/out when flags are omitted.",
     )
-    c.add_argument("--source", help="Source (base-language) JSON file; optional if 'source' is set in kaeris.json")
+    c.add_argument("--source", help="Source (base-language) JSON or ARB file; optional if 'source' is set in kaeris.json")
     c.add_argument("--langs", "-l", help="Comma-separated target languages, e.g. es,fr,de; "
                                         "optional if 'langs' is set in kaeris.json")
     c.add_argument("--out", "-o", help="Directory containing target locale files "
