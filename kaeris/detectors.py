@@ -24,8 +24,70 @@ _PH_RE = re.compile(
     r"|:[A-Za-z]\w*:"   # Rails-ish :name: — must START with a letter so time (10:30:45) and ratios (3:4:5) aren't mis-read as placeholders
 )
 
+# A simple {var} that became an ICU head {var, plural|select|selectordinal, …}. Captures the
+# variable name — the ARGUMENT of the block, which is the real placeholder.
+_ICU_SELECTOR_VAR_RE = re.compile(r"\{\s*([\w\d_]+)\s*,\s*(?:plural|select|selectordinal)\s*,")
+
+def _placeholder_list(text: str) -> list[str]:
+    """Placeholders as ICU semantics define them, not as a flat regex sees them.
+
+    An ICU block is STRUCTURE, not text: in {count, plural, one {# file} other {# files}}
+    the argument is `count` (its value renders through #), while `{# file}` and `{He}` are
+    ARMS — human text that merely happens to sit in braces. A flat scan reads those arms as
+    placeholders, so a CORRECT translation reports the source arms as lost and the target
+    arms as invented — e.g. a three-case select yields five phantom faults, in exactly the
+    --icu mode that asked the model to produce the construct. \\w is Unicode-aware, so this
+    bites hardest in non-Latin locales ({خطأان} read as an invented placeholder).
+
+    Arms are RECURSED into, so a genuine placeholder nested in an arm (`other {Hi {name}}`)
+    still counts and its loss is still reported. Anything that isn't an ICU block — {0:C},
+    {{name}}, %{name} — is left to the flat scan and behaves exactly as before.
+
+    Returns a list (not a set) so callers can count occurrences for arity checks.
+    """
+    out: list[str] = []
+    rest: list[str] = []        # everything outside ICU blocks, scanned flat
+    pos = 0
+    for bs, be in _brace_spans(text):
+        seg = text[bs:be]
+        head = _ICU_HEAD_RE.match(seg)
+        if not head:
+            continue            # not ICU — leave it in `rest` for the flat scan
+        rest.append(text[pos:bs])
+        pos = be
+        var = _ICU_SELECTOR_VAR_RE.match(seg)
+        if var:
+            out.append("{" + var.group(1) + "}")     # the argument IS the placeholder
+        body = seg[head.end():-1]                    # arms only, after "{name, type,"
+        for as_, ae in _brace_spans(body):
+            out.extend(_placeholder_list(body[as_ + 1:ae - 1]))
+    rest.append(text[pos:])
+    # Join with a space so removing a block can't fuse two neighbours into a false match.
+    out.extend(_PH_RE.findall(" ".join(rest)))
+    return out
+
+def _icu_visible_text(text: str) -> str:
+    """The text a user actually SEES: ICU markup replaced by the arm that renders longest
+    (the worst case for layout), nested blocks resolved recursively. `#` is left in place —
+    it stands for the number, which is 1-3 characters in practice. Non-ICU text is returned
+    untouched, so callers that never meet a plural behave exactly as before."""
+    out: list[str] = []
+    pos = 0
+    for bs, be in _brace_spans(text):
+        seg = text[bs:be]
+        head = _ICU_HEAD_RE.match(seg)
+        if not head:
+            continue
+        out.append(text[pos:bs])
+        pos = be
+        body = seg[head.end():-1]
+        arms = [_icu_visible_text(body[s + 1:e - 1]) for s, e in _brace_spans(body)]
+        out.append(max(arms, key=len) if arms else "")
+    out.append(text[pos:])
+    return "".join(out)
+
 def _find_placeholders(text: str) -> set[str]:
-    return set(_PH_RE.findall(text))
+    return set(_placeholder_list(text))
 
 def _lost_placeholders(original: str, translated: str) -> list[str]:
     return sorted(_find_placeholders(original) - _find_placeholders(translated))
@@ -40,8 +102,8 @@ def _placeholder_type_faults(original: str, translated: str) -> list[str]:
          of times in the translation. Set difference collapses the count and misses this.
     Single drops (N→0 for a once-used placeholder) are left to _lost_placeholders so the two
     checks don't double-report."""
-    src = collections.Counter(_PH_RE.findall(original))
-    tr = collections.Counter(_PH_RE.findall(translated))
+    src = collections.Counter(_placeholder_list(original))
+    tr = collections.Counter(_placeholder_list(translated))
     faults: list[str] = []
     for ph in sorted(set(src) | set(tr)):
         if ph == "%%":                       # literal percent, not an argument
@@ -327,6 +389,11 @@ def _compute_overflow(source_flat: dict[str, str], translated_flat: dict[str, st
     outlier (or a normally-compact language that ran long) still trips it."""
     base = (lang or "").replace("_", "-").split("-")[0].lower()
     expected = _LANG_EXPANSION.get(base, 1.2)
+    # Overflow is a LAYOUT question, so measure what RENDERS, not what's authored: an ICU
+    # block is markup the user never sees ("{count, plural, one {# Fehler} other {# Fehler}}
+    # gefunden" displays as "5 Fehler gefunden" — shorter than the source, yet raw length
+    # reads +185%). Applied to both sides, so the comparison stays honest either way.
+    _vis = _icu_visible_text
     # Trigger 18% beyond the language's norm, but never below the original absolute 1.4 floor —
     # a >40% stretch is a real risk for a tight UI in any language.
     threshold = max(1.4, expected * 1.18)
@@ -336,7 +403,7 @@ def _compute_overflow(source_flat: dict[str, str], translated_flat: dict[str, st
         tr = translated_flat.get(k, "")
         if not isinstance(tr, str) or not src:
             continue
-        slen, tlen = len(src), len(tr)
+        slen, tlen = len(_vis(src)), len(_vis(tr))
         if slen == 0:
             continue
         ratio = tlen / slen
