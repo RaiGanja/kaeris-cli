@@ -27,6 +27,20 @@ CORPUS = [  # (original, translated, lang)
     ("count 2 things", "عدد ٢ أشياء", "ar"),
     ("Click <b>here</b>", "Cliquez ici", "fr"),
     ("Save changes", "save changes", "ru"),
+    # ICU structure vs text. These are the cases where the two copies silently DIVERGED:
+    # the backend learned that an ICU block's argument is the placeholder and its arms are
+    # not, while the CLI still read arms flatly — so `kaeris check` invented faults the API
+    # no longer reported. Parity has to cover the placeholder detectors to catch that.
+    ("{gender, select, male {He} female {She} other {They}} updated it",
+     "{gender, select, male {Er} female {Sie} other {Sie}} hat es aktualisiert", "de"),
+    ("{count} files translated",
+     "{count, plural, one {# файл} few {# файла} many {# файлов} other {# файла}}", "ru"),
+    ("{count} errors found",
+     "{count, plural, zero{لا أخطاء} one{خطأ واحد} two{خطأان} other{# خطأ}}", "ar"),
+    ("{count, plural, one {Hi {name}, # file} other {Hi {name}, # files}}",
+     "{count, plural, one {Hola, # archivo} other {Hola, # archivos}}", "es"),
+    ("Hi {name}", "Hola", "es"),
+    ("Order {0:C} for {{user}}", "Bestellung für", "de"),
 ]
 
 @unittest.skipIf(BK is None, "backend/translator.py not importable — parity skipped")
@@ -34,6 +48,9 @@ class TestDetectorParity(unittest.TestCase):
     def test_string_detectors_match_backend(self):
         from kaeris import detectors as d
         for src, tr, lang in CORPUS:
+            self.assertEqual(d._find_placeholders(src), BK._find_placeholders(src), src)
+            self.assertEqual(d._lost_placeholders(src, tr),
+                             BK._lost_placeholders(src, tr), (src, tr))
             self.assertEqual(d._placeholder_type_faults(src, tr),
                              BK._placeholder_type_faults(src, tr), (src, tr))
             self.assertEqual(d._numeric_faults(src, tr), BK._numeric_faults(src, tr), (src, tr))
