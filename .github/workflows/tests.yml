@@ -47,10 +47,18 @@ jobs:
 
       - name: No test may be silently skipped
         run: |
-          # A skip means a dependency is missing and tests that exist are not running.
+          # A skip normally means a dependency is missing and tests that exist are not running.
+          # Exactly ONE skip is legitimate here: the detector-parity test compares this
+          # package's copy of the detectors against backend/translator.py, which lives in a
+          # different (private) repository and cannot exist in this checkout. That comparison
+          # is not dropped — it runs in the backend's own CI, which clones THIS repo to get
+          # both halves side by side. Anything else that skips fails the build.
           if grep -qE '[0-9]+ skipped' pytest.txt; then
-            echo "::error::tests were skipped — see the '-rs' list above"
-            exit 1
+            grep -q 'test_detector_parity' pytest.txt || {
+              echo "::error::tests were skipped — see the '-rs' list above"; exit 1; }
+            test "$(grep -cE '^SKIPPED' pytest.txt)" = "1" || {
+              echo "::error::more than the one expected skip"; exit 1; }
+            echo "Only the known parity skip (runs in the backend CI) — ok"
           fi
 
   # What people actually install
