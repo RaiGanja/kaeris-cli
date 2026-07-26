@@ -101,6 +101,51 @@ def _find_placeholders(text: str) -> set[str]:
 def _lost_placeholders(original: str, translated: str) -> list[str]:
     return sorted(_find_placeholders(original) - _find_placeholders(translated))
 
+def _placeholder_arity(text: str) -> tuple[collections.Counter, collections.Counter]:
+    """How many times a placeholder can appear in the RENDERED string — (most, fewest).
+
+    ICU arms are alternatives: exactly one is chosen at runtime, so a placeholder used once
+    in every arm renders once, no matter how many arms there are. Counting the flat list
+    instead makes correct output look broken the moment plural rules differ from English —
+    and they differ almost everywhere: Arabic needs six arms, Russian four, Japanese one.
+    A source with `{count, plural, one {Hi {name}…} other {Hi {name}…}}` lists {name} twice;
+    its Arabic translation lists it six times, its Japanese once. Compared flatly that is a
+    "duplicated" fault and a "dropped" fault on two perfectly correct translations — in
+    exactly the --icu mode that asked for those arms.
+
+    So: count outside the ICU blocks normally, and inside take the max across arms (for
+    duplication) and the min (for a drop inside SOME arm, which is a real bug — that arm
+    renders without the value). Nested blocks recurse.
+    """
+    outside: list[str] = []
+    arm_max: collections.Counter = collections.Counter()
+    arm_min: collections.Counter = collections.Counter()
+    pos = 0
+    for bs, be in _brace_spans(text):
+        seg = text[bs:be]
+        head = _ICU_HEAD_RE.match(seg)
+        if not head:
+            continue
+        outside.append(text[pos:bs])
+        pos = be
+        var = _ICU_SELECTOR_VAR_RE.match(seg)
+        if var:
+            outside.append("{" + var.group(1) + "}")   # the argument renders once
+        body = seg[head.end():-1]
+        per_arm = []
+        for as_, ae in _brace_spans(body):
+            mx, mn = _placeholder_arity(body[as_ + 1:ae - 1])
+            per_arm.append((mx, mn))
+        if per_arm:
+            keys = set().union(*[set(mx) for mx, _ in per_arm])
+            for k in keys:
+                arm_max[k] += max(mx.get(k, 0) for mx, _ in per_arm)
+                arm_min[k] += min(mn.get(k, 0) for _, mn in per_arm)
+    outside.append(text[pos:])
+    flat = collections.Counter(_PH_RE.findall(" ".join(outside)))
+    return flat + arm_max, flat + arm_min
+
+
 def _placeholder_type_faults(original: str, translated: str) -> list[str]:
     """Deterministic placeholder faults a SET-based check (_lost_placeholders) cannot express:
       1. a placeholder the model INVENTED — present in the translation, absent from the
@@ -111,18 +156,27 @@ def _placeholder_type_faults(original: str, translated: str) -> list[str]:
          of times in the translation. Set difference collapses the count and misses this.
     Single drops (N→0 for a once-used placeholder) are left to _lost_placeholders so the two
     checks don't double-report."""
-    src = collections.Counter(_placeholder_list(original))
-    tr = collections.Counter(_placeholder_list(translated))
+    src_max, src_min = _placeholder_arity(original)
+    tr_max, tr_min = _placeholder_arity(translated)
     faults: list[str] = []
-    for ph in sorted(set(src) | set(tr)):
+    for ph in sorted(set(src_max) | set(tr_max)):
         if ph == "%%":                       # literal percent, not an argument
             continue
-        s, t = src[ph], tr[ph]
-        if t > s:
-            faults.append(f"invented placeholder {ph} (not in source)" if s == 0
-                          else f"placeholder {ph} appears {t}× vs {s}× in source (duplicated)")
-        elif s > t and s > 1:                # single drops are _lost_placeholders' job
-            faults.append(f"placeholder {ph} appears {s}× in source but {t}× in translation")
+        if tr_max[ph] > src_max[ph]:
+            faults.append(f"invented placeholder {ph} (not in source)" if src_max[ph] == 0
+                          else f"placeholder {ph} appears {tr_max[ph]}× vs {src_max[ph]}× in source (duplicated)")
+        elif src_min[ph] > tr_min[ph]:
+            # Present in every source arm, missing from at least one translated arm — that arm
+            # renders without the value. A placeholder that vanished ENTIRELY is left to
+            # _lost_placeholders (tr_max == 0) so the two checks never double-report the same
+            # fault; this branch is specifically the per-arm drop a set difference cannot see.
+            if tr_max[ph] == 0:
+                continue
+            faults.append(
+                f"placeholder {ph} is missing from some plural/select arms "
+                f"({tr_min[ph]}× in the thinnest arm vs {src_min[ph]}× in the source)"
+                if tr_max[ph] != tr_min[ph] or src_max[ph] != src_min[ph]
+                else f"placeholder {ph} appears {src_min[ph]}× in source but {tr_min[ph]}× in translation")
     return faults
 
 # Digit runs incl. non-ASCII digits (Arabic-Indic, Persian, Devanagari) and locale
