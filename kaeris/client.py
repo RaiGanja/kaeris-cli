@@ -8,12 +8,60 @@ import uuid
 import zipfile
 import urllib.request
 import urllib.error
+import urllib.parse
 
 DEFAULT_API = "https://kaeris.dev"
 
 
 class KaerisError(Exception):
     """Any error talking to the KAERIS API."""
+
+
+class _SameHostRedirect(urllib.request.HTTPRedirectHandler):
+    """Follow a redirect only while it stays on the same host.
+
+    Our credentials travel as X-API-Key / X-OpenRouter-Key headers, and urllib re-sends custom
+    headers to whatever a redirect points at. Python strips Authorization across hosts; it has
+    no reason to know ours are secrets. Proven by running it: a 302 to another host handed
+    over the user's paid key in full.
+
+    An http→https bump on the SAME host is normal (Cloudflare does it) and still allowed. A
+    change of host is refused outright rather than followed without the headers — if the API
+    moves, that should be a visible error, not a silent half-request.
+    """
+
+    @staticmethod
+    def _endpoint(url):
+        u = urllib.parse.urlsplit(url)
+        port = u.port or (443 if u.scheme == "https" else 80)
+        return u.scheme, (u.hostname or "").lower(), port
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        old_scheme, old_host, old_port = self._endpoint(req.full_url)
+        new_scheme, new_host, new_port = self._endpoint(newurl)
+        # Host or port change → a different server, however similar the name looks.
+        if (old_host, old_port) != (new_host, new_port):
+            raise KaerisError(
+                f"Refusing to follow a redirect from {old_host}:{old_port} to "
+                f"{new_host}:{new_port} — your API key would be sent to a different server. "
+                f"Check --api-url."
+            )
+        # https → http on the same host is worse than a different host: the key would go out
+        # in clear text on the wire.
+        if old_scheme == "https" and new_scheme != "https":
+            raise KaerisError(
+                "Refusing to follow a redirect from https to http — your API key would "
+                "travel unencrypted."
+            )
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_opener = urllib.request.build_opener(_SameHostRedirect)
+
+
+def _urlopen(req, timeout):
+    """All requests go through the opener above, so no call path can miss the guard."""
+    return _opener.open(req, timeout=timeout)
 
 
 class KaerisClient:
@@ -37,7 +85,7 @@ class KaerisClient:
     def _get(self, path):
         req = urllib.request.Request(self.api_url + path, headers=self._headers())
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            with _urlopen(req, timeout=self.timeout) as r:
                 return r.read()
         except urllib.error.HTTPError as e:
             raise KaerisError(self._err_message(e))
@@ -137,7 +185,7 @@ class KaerisClient:
             headers=self._headers({"Content-Type": ctype}),
         )
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            with _urlopen(req, timeout=self.timeout) as r:
                 data = json.loads(r.read().decode())
         except urllib.error.HTTPError as e:
             raise KaerisError(self._err_message(e))
@@ -170,7 +218,7 @@ class KaerisClient:
             headers=self._headers({"Content-Type": "multipart/form-data; boundary=" + boundary}),
         )
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            with _urlopen(req, timeout=self.timeout) as r:
                 data = json.loads(r.read().decode())
         except urllib.error.HTTPError as e:
             raise KaerisError(self._err_message(e))
