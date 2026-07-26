@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kaeris"
-version = "0.2.4"
+version = "0.2.5"
 description = "AI localization CLI — translate JSON/YAML/.strings/.po/ARB/Android XML into 46 languages"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -15,6 +15,15 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
+    # Spelled out, and each one actually exercised: the suite runs green on 3.8 and 3.9 in
+    # clean containers. Without these PyPI shows no version support at all, and a reader
+    # can't tell whether an old runner is safe.
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "License :: OSI Approved :: MIT License",
     "Topic :: Software Development :: Localization",
     "Topic :: Software Development :: Internationalization",

@@ -1,6 +1,9 @@
 import ast, os, unittest
 
-ALLOWED = {"re", "collections"}
+# `__future__` is a compiler directive, not a dependency: it changes how annotations are
+# compiled (kept as strings) and pulls in nothing at runtime. detectors.py needs it so its
+# `list[str] | None` hints don't get EVALUATED on Python 3.8/3.9, where that raises.
+ALLOWED = {"re", "collections", "__future__"}
 
 class TestDetectorsOffline(unittest.TestCase):
     def test_only_stdlib_pure_imports(self):

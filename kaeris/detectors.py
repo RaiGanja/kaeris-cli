@@ -3,11 +3,20 @@ detector layer in backend/translator.py. NO network, NO model, NO file IO here.
 Parity with the backend is proven by cli/tests/test_detector_parity.py.
 Stdlib only: re, collections."""
 
+from __future__ import annotations   # keeps `list[str] | None` hints from being EVALUATED at
+                                     # def time, so this module imports on Python 3.8/3.9 too —
+                                     # the package advertises >=3.8 and `kaeris check` must run
+                                     # wherever pip let it install.
 import re
 import collections
 
 # Placeholders, longest/most-specific forms FIRST so e.g. {{name}} isn't split into {name}
 # and %{name} isn't split into % + {name}:
+# Widths/flags use BOUNDED repeats ({0,6}/{0,8}), not possessive `*+`: bounded repetition
+# denies ReDoS the same way (no unbounded ambiguous overlap — '0' lives in both the flag class
+# and \d), and unlike `*+` it parses on Python < 3.11. With possessive quantifiers this module
+# raised `re.error: multiple repeat` at import on 3.8-3.10, so `kaeris check` — the free
+# offline firewall, and the Action's check mode — died on every runner older than 3.11.
 #   {{ name }}  Vue/Angular/Handlebars/Mustache      %{name}   Rails i18n
 #   %(name)s  Python/Django dict printf     {name} {0} {0:C}  brace + .NET composite
 #   %1$s / %2$@  positional (Android/iOS)   %@  iOS   %s/%d printf
@@ -15,11 +24,11 @@ import collections
 _PH_RE = re.compile(
     r"\{\{\s*[\w\d_.]+\s*\}\}"
     r"|%\{[\w\d_]+\}"
-    r"|%\([\w\d_]+\)[-+0#]*+\d*+(?:\.\d+)?[a-zA-Z]"   # Python dict, incl. %(name).2f width/precision; possessive *+ blocks ReDoS
+    r"|%\([\w\d_]+\)[-+0#]{0,6}\d{0,8}(?:\.\d{1,8})?[a-zA-Z]"   # Python dict, incl. %(name).2f width/precision
     r"|\{[\w\d_]+(?:,-?\d+)?(?::[^}]*)?\}"   # brace + .NET composite incl. alignment {0,-10:N2} {1,5}
-    r"|%\d+\$[-+0# ]*+\d*+(?:\.\d+)?[@a-zA-Z]"   # positional printf incl. flags/width/precision %1$02d %2$-5s; possessive *+ blocks ReDoS
+    r"|%\d+\$[-+0# ]{0,6}\d{0,8}(?:\.\d{1,8})?[@a-zA-Z]"   # positional printf incl. flags/width/precision %1$02d %2$-5s
     r"|%@"
-    r"|%[-+0#]*+\d*+(?:\.\d+)?(?:hh|ll|[hlLzjt])?[sSdiouxXeEfFgGaAcCpn%]"  # printf incl. %.2f %02d %-10s %u %ld; possessive *+ blocks ReDoS
+    r"|%[-+0#]{0,6}\d{0,8}(?:\.\d{1,8})?(?:hh|ll|[hlLzjt])?[sSdiouxXeEfFgGaAcCpn%]"  # printf incl. %.2f %02d %-10s %u %ld
     r"|\$\{[\w\d_]+\}"
     r"|:[A-Za-z]\w*:"   # Rails-ish :name: — must START with a letter so time (10:30:45) and ratios (3:4:5) aren't mis-read as placeholders
 )
