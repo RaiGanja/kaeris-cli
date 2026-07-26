@@ -212,9 +212,7 @@ def cmd_init(args):
 
     doc = {"//": _config_comment(note)}
     doc.update(cfg)
-    with open(CONFIG_FILENAME, "w", encoding="utf-8") as f:
-        json.dump(doc, f, ensure_ascii=False, indent=2)
-        f.write("\n")
+    write_atomic(CONFIG_FILENAME, json.dumps(doc, ensure_ascii=False, indent=2) + "\n")
 
     suffix = f" (preset: {args.preset})" if args.preset else ""
     ok(f"Wrote {CONFIG_FILENAME}{suffix}")
@@ -513,8 +511,7 @@ def _show_qa(client, job, out_dir, verify, back_lang):
 
     if verify and back:
         vpath = os.path.join(out_dir, "verify.json")
-        with open(vpath, "w", encoding="utf-8") as f:
-            json.dump(back, f, ensure_ascii=False, indent=2)
+        write_atomic(vpath, json.dumps(back, ensure_ascii=False, indent=2))
         ok(f"Verify-meaning back-translations (→ {back_lang}) written to {vpath}")
 
     if not ph and not over:
@@ -647,6 +644,37 @@ def _find_json_member(members, lang):
     return None
 
 
+
+def write_atomic(path, data, *, binary=False):
+    """Write a file so an interrupted run cannot destroy what was already there.
+
+    `open(path, "w")` truncates the destination the moment it is called, so a Ctrl+C, a full
+    disk or a killed process between that and the final byte leaves the user with a half file
+    — and these are their locale files and their lock. Reproduced: a 56-byte fr.json became 14
+    unparseable bytes, with the previous translation gone.
+
+    Writing beside the target and renaming means a reader (and the next run) sees either the
+    old file or the new one. The rename is atomic on POSIX and on Windows via os.replace.
+    """
+    path = str(path)
+    directory = os.path.dirname(os.path.abspath(path))
+    tmp = os.path.join(directory, f".{os.path.basename(path)}.kaeris-tmp")
+    mode = "wb" if binary else "w"
+    kwargs = {} if binary else {"encoding": "utf-8"}
+    try:
+        with open(tmp, mode, **kwargs) as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def _write_members(members, src_path, out_dir, source_lang):
     """Write each downloaded member (named `<lang><ext>`) to its namespace-mirrored
     target path (see _target_path) instead of a flat out_dir."""
@@ -655,8 +683,7 @@ def _write_members(members, src_path, out_dir, source_lang):
         lang = os.path.splitext(os.path.basename(name))[0]
         dest = _target_path(src_path, lang, out_dir, source_lang)
         os.makedirs(os.path.dirname(dest) or out_dir or ".", exist_ok=True)
-        with open(dest, "wb") as f:
-            f.write(data)
+        write_atomic(dest, data, binary=True)
         written.append(dest)
     return written
 

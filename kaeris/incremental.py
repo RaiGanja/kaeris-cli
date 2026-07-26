@@ -175,9 +175,11 @@ def load_lock(path):
 
 
 def dump_lock(lock, path):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(lock, f, ensure_ascii=False, indent=2, sort_keys=True)
-        f.write("\n")
+    """Atomic on purpose: the lock is what makes a re-run incremental. A half-written lock
+    either re-translates everything (the user pays twice) or is unreadable and silently
+    ignored — both from a Ctrl+C at the wrong moment."""
+    from .cli import write_atomic
+    write_atomic(path, json.dumps(lock, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
 
 
 def build_subset(source_obj, keys, flat_style):
