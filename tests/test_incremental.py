@@ -127,7 +127,7 @@ def test_legacy_lock_settings_never_force():
     assert inc.settings_changed(None, inc.settings_signature(model="x")) is False
 
 
-def test_lock_v3_roundtrip():
+def test_lock_roundtrip_records_the_current_version():
     import tempfile, os as _os
     keys = {"a": inc.hash_value("Hello")}
     settings = inc.settings_signature(tone="formal", icu=False, keep=["KAERIS"],
@@ -136,7 +136,7 @@ def test_lock_v3_roundtrip():
         p = _os.path.join(d, "kaeris.lock")
         inc.dump_lock(inc.build_lock(keys, settings), p)
         loaded = inc.load_lock(p)
-        assert loaded["version"] == 3
+        assert loaded["version"] == inc.LOCK_VERSION
         assert inc.lock_keys(loaded) == keys
         assert inc.lock_settings(loaded) == settings
         assert inc.lock_settings(loaded)["model"] == "openai/gpt-4o-mini"
