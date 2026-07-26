@@ -1,3 +1,5 @@
+<img src="https://kaeris.dev/icon-512.png" alt="KAERIS" width="72" align="left" style="margin-right:16px" />
+
 # KAERIS i18n — CLI
 
 AI localization from your terminal. Translate your app's strings files into **46 languages** —
