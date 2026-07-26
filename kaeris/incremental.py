@@ -94,7 +94,7 @@ def changed_or_missing_keys(source_flat, existing_flat, lock):
     return todo
 
 
-LOCK_VERSION = 3
+LOCK_VERSION = 4
 
 
 def settings_signature(tone="", icu=False, keep=None, model=""):
@@ -136,12 +136,35 @@ def settings_changed(locked, current):
     return bool(locked_model and current_model and locked_model != current_model)
 
 
-def lock_keys(lock):
-    """The {source key: source-hash} map from a lock, tolerating the versioned layout
-    ({"version":N,"settings":...,"keys":...}) and the legacy flat {key: hash} layout."""
-    if isinstance(lock, dict) and "version" in lock and isinstance(lock.get("keys"), dict):
-        return dict(lock["keys"])
+def lock_keys(lock, lang=None):
+    """The {source key: source-hash} baseline to detect against.
+
+    With `lang`, the PER-LANGUAGE baseline — which is the only correct one when languages are
+    translated in separate runs, and they usually are (a CI matrix, or simply doing German
+    today and French tomorrow). The lock used to hold a single global map meaning "this hash
+    reached every language". Advancing it after a run that touched only German marked the edit
+    as done for French too, so French kept the translation of the OLD English string forever,
+    silently. Reproduced before this fix.
+
+    Falls back to the global map when this language has no per-language record yet — so a lock
+    written by an older version keeps behaving exactly as it did, and nobody is billed for a
+    surprise full retranslate on upgrade.
+
+    Also tolerates the legacy flat {key: hash} layout.
+    """
+    if isinstance(lock, dict) and "version" in lock:
+        per_lang = lock.get("langs")
+        if lang and isinstance(per_lang, dict) and isinstance(per_lang.get(lang), dict):
+            return dict(per_lang[lang])
+        return dict(lock["keys"]) if isinstance(lock.get("keys"), dict) else {}
     return {k: v for k, v in (lock or {}).items() if isinstance(v, str)}
+
+
+def lock_langs(lock):
+    """Per-language baselines recorded in the lock ({} for older locks)."""
+    if isinstance(lock, dict) and isinstance(lock.get("langs"), dict):
+        return {k: dict(v) for k, v in lock["langs"].items() if isinstance(v, dict)}
+    return {}
 
 
 def lock_settings(lock):
@@ -152,9 +175,15 @@ def lock_settings(lock):
     return None
 
 
-def build_lock(keys, settings):
-    """Assemble a lock document: recorded settings + per-key source hashes."""
-    return {"version": LOCK_VERSION, "settings": settings, "keys": dict(keys)}
+def build_lock(keys, settings, langs=None):
+    """Assemble a lock document: settings, the global baseline, and per-language baselines.
+
+    `keys` stays the "reached every language" map so an older client reading this lock behaves
+    as it always did; `langs` is what a current client detects against."""
+    doc = {"version": LOCK_VERSION, "settings": settings, "keys": dict(keys)}
+    if langs:
+        doc["langs"] = {lang: dict(m) for lang, m in langs.items() if m}
+    return doc
 
 
 def default_lock_path(source_path):

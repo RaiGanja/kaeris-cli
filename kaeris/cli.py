@@ -557,7 +557,9 @@ def _translate_incremental(client, path, out_dir, langs, args):
     # propagated to ALL target languages". Snapshot it once so every language
     # detects against the same baseline — never against a lock a previous
     # language mutated mid-loop (that bug silently skipped later languages).
-    detect_lock = inc.lock_keys(lock_raw)
+    detect_lock = inc.lock_keys(lock_raw)          # глобальный снимок (для совместимости)
+    lang_locks = inc.lock_langs(lock_raw)           # состояние по каждому языку
+    broken_by_lang: dict[str, set] = {}
     # Reproducibility: if the tone/ICU/glossary/model changed since the lock was written, an
     # unchanged source string would still hash-match and be kept — leaving a locale that mixes
     # old and new settings. Detect that and re-translate every key so the output stays consistent.
@@ -583,8 +585,11 @@ def _translate_incremental(client, path, out_dir, langs, args):
         os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
         existing = inc.load_json(target_path) if os.path.isfile(target_path) else {}
         existing_flat = inc.flatten(existing) if existing else {}
+        # Detect against THIS language's baseline: a run that touched only German must not
+        # mark an edited string as done for French (see incremental.lock_keys).
+        lang_baseline = inc.lock_keys(lock_raw, lang)
         todo = (dict(source_flat) if settings_changed
-                else inc.changed_or_missing_keys(source_flat, existing_flat, detect_lock))
+                else inc.changed_or_missing_keys(source_flat, existing_flat, lang_baseline))
         if not todo:
             ok(f"{lang}: up to date ({len(existing_flat)} keys)")
             continue
@@ -605,10 +610,12 @@ def _translate_incremental(client, path, out_dir, langs, args):
         if translated is None:
             err(f"{lang}: no output returned")
             broken.update(todo)  # not merged — keep these keys stale-locked
+            broken_by_lang.setdefault(lang, set()).update(todo)
             continue
         if lang in (status.get("failed_langs") or []):
             warn(f"{lang}: translation fell back to source text — NOT merged (fix and re-run)")
             broken.update(todo)  # not merged — keep these keys stale-locked
+            broken_by_lang.setdefault(lang, set()).update(todo)
             continue
         merged = inc.merge_translation(existing, translated)
         if is_arb:
@@ -620,14 +627,30 @@ def _translate_incremental(client, path, out_dir, langs, args):
     # current hash only if it is current in EVERY language processed (i.e. not in
     # `broken`). This folds in the old self-heal (keys already correct everywhere
     # get recorded) while never poisoning detection for a later language.
+    # Per-language baselines: record this run's hashes for each language that actually took
+    # them, so a later run for a DIFFERENT language still sees the edit as pending.
+    for lang in langs:
+        base = dict(lang_locks.get(lang) or inc.lock_keys(lock_raw, lang))
+        failed = broken_by_lang.get(lang, set())
+        for k, h in source_hashes.items():
+            if k not in failed:
+                base[k] = h
+        lang_locks[lang] = {k: v for k, v in base.items() if k in source_hashes}
+
+    # The global map keeps its old meaning — "current in EVERY language we know about" — so an
+    # older client reading this lock is not told a key is done when some language still lags.
     new_keys = dict(detect_lock)
     for k in source_hashes:
-        if k not in broken:
+        if k in broken:
+            continue
+        if all(m.get(k) == source_hashes[k] for m in lang_locks.values()):
             new_keys[k] = source_hashes[k]
+        else:
+            new_keys.pop(k, None)
     # Record the new settings only if they were fully applied everywhere. If a settings change
     # left some language broken, keep the OLD settings so the next run re-forces the stragglers.
     final_settings = locked_settings if (settings_changed and broken) else cur_settings
-    inc.dump_lock(inc.build_lock(new_keys, final_settings), lock_path)
+    inc.dump_lock(inc.build_lock(new_keys, final_settings, lang_locks), lock_path)
 
     if not any_work:
         ok("Everything already up to date — nothing to translate")
