@@ -1,0 +1,90 @@
+# CI for the `kaeris` package on PyPI.
+#
+# This package has zero runtime dependencies and promises Python 3.8+ on PyPI — a promise it
+# has already broken once, with a possessive regex quantifier that only parses on 3.11+. That
+# was found by a user's runtime, not by us. So the oldest promised version is a first-class
+# job here, not an afterthought.
+#
+# The second thing this checks is the artefact itself. Unit tests pass against the source tree;
+# what users install is a wheel, and a wheel can be missing a module while every test still
+# goes green. So CI builds it, installs it into a clean venv, and runs the console script.
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  suite:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 3.8 and 3.9 are gone from ubuntu-24.04 images, so the oldest promised versions run
+          # on 22.04. 3.14 is what the production backend runs.
+          - {python: '3.8',  os: ubuntu-22.04}
+          - {python: '3.9',  os: ubuntu-22.04}
+          - {python: '3.12', os: ubuntu-latest}
+          - {python: '3.14', os: ubuntu-latest}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - run: pip install pytest
+
+      - name: Test suite
+        run: python -m pytest -q -rs | tee pytest.txt
+
+      - name: No test may be silently skipped
+        run: |
+          # A skip means a dependency is missing and tests that exist are not running.
+          if grep -qE '[0-9]+ skipped' pytest.txt; then
+            echo "::error::tests were skipped — see the '-rs' list above"
+            exit 1
+          fi
+
+  # What people actually install
+  wheel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install build twine
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      - name: Metadata must be valid for PyPI
+        run: twine check dist/*
+
+      - name: Install the wheel into a clean environment and run it
+        run: |
+          python -m venv /tmp/clean
+          /tmp/clean/bin/pip install dist/*.whl
+          /tmp/clean/bin/kaeris --version
+          /tmp/clean/bin/kaeris check --help > /dev/null
+          # A wheel that installs but ships a broken module would still pass the lines above,
+          # so make the installed tool do its actual job: find a missing key. It exits non-zero
+          # when it finds one — that IS the pass condition here, and an empty or silent run is
+          # the failure we are looking for.
+          mkdir -p /tmp/loc
+          printf '{"greeting": "Hello", "save": "Save"}' > /tmp/loc/en.json
+          printf '{"greeting": "Hallo"}' > /tmp/loc/de.json
+          out=$(/tmp/clean/bin/kaeris check --source /tmp/loc/en.json --langs de 2>&1 || true)
+          echo "$out"
+          echo "$out" | grep -q "save" || {
+            echo "::error::the installed wheel did not report the missing key"; exit 1; }
