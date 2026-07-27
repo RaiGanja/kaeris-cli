@@ -64,6 +64,9 @@ outputs:
   check-exit-code:
     description: "Exit code of the post-run `kaeris check` (0 clean, 1 problem found, 2 bad usage)."
     value: ${{ steps.run.outputs.check-exit-code }}
+  translate-exit-code:
+    description: "Exit code of `kaeris translate` (0 clean, 3 some languages fell back to source). Non-zero also fails the step."
+    value: ${{ steps.run.outputs.translate-exit-code }}
 
 runs:
   using: composite
@@ -125,7 +128,17 @@ runs:
           [ "$KA_ONLY_NEW" = "true" ] && args+=(--only-new)
           [ -n "$KA_TONE" ] && args+=(--tone "$KA_TONE")
           [ "$KA_ICU" = "true" ] && args+=(--icu)
+          # `set -e` does NOT catch this: a pipeline's status is the status of its LAST
+          # command, and `tee` always succeeds. So every non-zero exit from `kaeris translate`
+          # was swallowed and the action carried on as if the run had gone fine — including
+          # exit 3, "some languages fell back to untranslated source text". The customer's
+          # workflow then opened a PR with English sitting in de.json, green tick and all.
+          # `kaeris check` does not save us here either: a fallen-back string is present and
+          # structurally identical to the source, so it is a YELLOW warning, not a failure.
+          set +e
           kaeris "${args[@]}" 2>&1 | tee "$translate_log"
+          translate_exit=${PIPESTATUS[0]}
+          set -e
 
           set +e
           kaeris check --source "$KA_SOURCE" --langs "$KA_LANGS" --out "$out" --json > "$after_json"
@@ -157,7 +170,19 @@ runs:
         {
           echo "changed=$changed"
           echo "check-exit-code=$check_exit"
+          echo "translate-exit-code=${translate_exit:-0}"
         } >> "$GITHUB_OUTPUT"
+
+        # Fail the job on a bad translate run — but only AFTER the summary above is written,
+        # so whoever opens the run sees exactly which languages did not make it.
+        if [ "$KA_MODE" != "check" ] && [ "${translate_exit:-0}" != "0" ]; then
+          if [ "${translate_exit}" = "3" ]; then
+            echo "::error::Some languages fell back to untranslated source text and were NOT translated — see the log above. Do not merge these locale files."
+          else
+            echo "::error::kaeris translate failed (exit ${translate_exit}) — see the log above."
+          fi
+          exit "$translate_exit"
+        fi
 
         if [ "$KA_MODE" = "check" ] && [ "$check_exit" != "0" ]; then
           echo "::error::kaeris check found incomplete/broken translations — see the job summary for the language matrix"
