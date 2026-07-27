@@ -416,6 +416,7 @@ def cmd_translate(args):
         args.tone = cfg_tone if cfg_tone in ("neutral", "formal", "casual") else "neutral"
     args.icu = args.icu if args.icu is not None else bool(config.get("icu", False))
     args.only_new = args.only_new if args.only_new is not None else bool(config.get("only_new", False))
+    args.assume_current = getattr(args, "assume_current", False) or bool(config.get("assume_current", False))
     args.lock = args.lock or config.get("lock")
     args.out = args.out or config.get("out")
     args.source_lang = args.source_lang or config.get("source_lang") or "en"
@@ -579,6 +580,7 @@ def _translate_incremental(client, path, out_dir, langs, args):
     # left stale-locked so the NEXT run retries the language(s) that failed.
     broken = set()
     any_work = False
+    unverified_by_lang: dict[str, set] = {}
 
     for lang in langs:
         target_path = _target_path(path, lang, out_dir, args.source_lang)
@@ -588,6 +590,10 @@ def _translate_incremental(client, path, out_dir, langs, args):
         # Detect against THIS language's baseline: a run that touched only German must not
         # mark an edited string as done for French (see incremental.lock_keys).
         lang_baseline = inc.lock_keys(lock_raw, lang)
+        # Keys already in the target that no lock has ever vouched for. Not translated, not
+        # locked, and named below — see incremental.unverified_keys.
+        if not settings_changed:
+            unverified_by_lang[lang] = inc.unverified_keys(source_flat, existing_flat, lang_baseline)
         todo = (dict(source_flat) if settings_changed
                 else inc.changed_or_missing_keys(source_flat, existing_flat, lang_baseline))
         if not todo:
@@ -629,13 +635,20 @@ def _translate_incremental(client, path, out_dir, langs, args):
     # get recorded) while never poisoning detection for a later language.
     # Per-language baselines: record this run's hashes for each language that actually took
     # them, so a later run for a DIFFERENT language still sees the edit as pending.
+    unverified_all = set()
+    if not args.assume_current:
+        for s_ in unverified_by_lang.values():
+            unverified_all |= s_
     for lang in langs:
         base = dict(lang_locks.get(lang) or inc.lock_keys(lock_raw, lang))
         failed = broken_by_lang.get(lang, set())
+        skip = set() if args.assume_current else unverified_by_lang.get(lang, set())
         for k, h in source_hashes.items():
-            if k not in failed:
+            if k not in failed and k not in skip:
                 base[k] = h
         lang_locks[lang] = {k: v for k, v in base.items() if k in source_hashes}
+    # Never record a hash for something nobody checked: that is what made the loss permanent.
+    broken |= unverified_all
 
     # The global map keeps its old meaning — "current in EVERY language we know about" — so an
     # older client reading this lock is not told a key is done when some language still lags.
@@ -652,6 +665,13 @@ def _translate_incremental(client, path, out_dir, langs, args):
     final_settings = locked_settings if (settings_changed and broken) else cur_settings
     inc.dump_lock(inc.build_lock(new_keys, final_settings, lang_locks), lock_path)
 
+    if unverified_all:
+        langs_hit = sorted(l for l, s_ in unverified_by_lang.items() if s_)
+        info(f"{len(unverified_all)} key(s) already exist in {', '.join(langs_hit)} but nothing in "
+             f"kaeris.lock vouches for them, so they were left alone AND left unlocked. If the "
+             f"source changed after those files were made, those edits are NOT translated. "
+             f"Re-run once with --no-only-new to rebuild them, or with --assume-current if the "
+             f"files are known to match.")
     if not any_work:
         ok("Everything already up to date — nothing to translate")
     return 0
@@ -747,6 +767,11 @@ def build_parser():
                    help="Incremental: translate only keys missing from existing targets (JSON)")
     t.add_argument("--no-only-new", dest="only_new", action="store_false", default=None,
                    help="Disable incremental mode (overrides kaeris.json's only_new)")
+    t.add_argument("--assume-current", dest="assume_current", action="store_true", default=False,
+                   help="Incremental: treat existing target strings with no entry in "
+                        "kaeris.lock as already matching the source, and lock them. Without "
+                        "this they are left alone and left unlocked, because nothing has "
+                        "checked them")
     t.add_argument("--lock", default=None,
                    help="Path to the incremental lock file used by --only-new to detect edited "
                         "source strings and setting changes (tone/icu/glossary), so output stays "
