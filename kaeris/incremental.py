@@ -94,6 +94,20 @@ def changed_or_missing_keys(source_flat, existing_flat, lock):
     return todo
 
 
+def unverified_keys(source_flat, existing_flat, lock):
+    """Keys that already exist in the target but have no baseline in the lock.
+
+    We cannot tell whether they match the current source. They are not translated — the whole
+    point of --only-new is not to spend money on a guess — but they must not be recorded as
+    current either. That was the damage: `kaeris translate` with no flags writes locale files
+    and no lock, the source moves on, and the first incremental run (the GitHub Action passes
+    only-new: true) skipped them and then wrote a lock stamped with the CURRENT hashes. From
+    that moment the stale translations looked current to every later run, and the edits made in
+    between could never be found again.
+    """
+    return {k for k in source_flat if k in existing_flat and k not in lock}
+
+
 LOCK_VERSION = 4
 
 
