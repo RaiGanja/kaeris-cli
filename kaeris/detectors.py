@@ -512,9 +512,27 @@ def _untranslated_string(original: str, translated: str, lang: str,
     are stripped — the lowercase word separates an untranslated SENTENCE ('save changes') from
     a Title-Case brand phrase ('GitHub Actions') that legitimately stays in Latin."""
     base = (lang or "").replace("_", "-").split("-")[0].lower()
+    if base == "en":
+        return []                       # an English source going to English is identical by definition
     rx = _LANG_SCRIPT_RE.get(lang) or _LANG_SCRIPT_RE.get(base)
-    if not rx or rx.search(translated):
+
+    # Two ways for a string to give itself away, because the script test only works when the
+    # target has its own alphabet — that is 14 of our 46 languages. The other 32 are Latin,
+    # and English sitting inside German is Latin inside Latin.
+    #
+    # Found the hard way: 199,962 characters into German on the paid model returned 40 strings
+    # in English out of 3,174. Nothing noticed. The file-level echo ratio needs 70% before it
+    # speaks and this was 1.3%; the script test cannot fire at all. The CLI reported QA clean
+    # and exited 0, and a customer would have shipped English to German users.
+    #
+    # For a same-script pair the signal is identity: the "translation" is the source, byte for
+    # byte. On its own that proves nothing — OK, Status, Email, Menu genuinely survive
+    # translation — so it only counts for something sentence-shaped, which the word count and
+    # the lowercase-word rule below decide.
+    same_as_source = translated.strip() == original.strip()
+    if not same_as_source and (not rx or rx.search(translated)):
         return []
+
     s = _PH_RE.sub(" ", translated)
     s = _TAG_RE.sub(" ", s)
     s = _URL_RE.sub(" ", s)
@@ -522,8 +540,15 @@ def _untranslated_string(original: str, translated: str, lang: str,
     for g in (glossary or []):
         if g:
             s = re.sub(re.escape(g), " ", s, flags=re.I)
-    if _LOWERCASE_WORD_RE.search(s):
+    if not _LOWERCASE_WORD_RE.search(s):
+        return []                       # "GitHub Actions Runner" is a name, not a sentence
+
+    if rx and not rx.search(translated):
         return ["may be untranslated — no target-language script, still reads as source text"]
+    # Same-script target: demand a real sentence before saying anything, so a one-word label
+    # that legitimately survives translation never trips it.
+    if same_as_source and len(re.findall(r"[^\W\d_]{2,}", s, flags=re.UNICODE)) >= 3:
+        return ["may be untranslated — identical to the source text"]
     return []
 
 def _compute_consistency(source_flat: dict[str, str], translated_flat: dict[str, str]) -> list[dict]:
