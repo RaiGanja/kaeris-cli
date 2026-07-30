@@ -596,6 +596,72 @@ def _compute_consistency(source_flat: dict[str, str], translated_flat: dict[str,
     out.sort(key=lambda x: len(x["keys"]), reverse=True)
     return out[:30]
 
+# Currency tokens, longest first so "R$" is never read as "$". The value is the currency they
+# mean, so a symbol and its ISO code compare equal: "$79" and "79 USD" are the same price.
+_CURRENCY_TOKENS = [
+    ("R$", "BRL"), ("US$", "USD"), ("CA$", "CAD"), ("NZ$", "NZD"), ("HK$", "HKD"),
+    ("A$", "AUD"), ("S$", "SGD"), ("zł", "PLN"), ("Kč", "CZK"), ("kr", "KR"),
+    ("$", "USD"), ("€", "EUR"), ("£", "GBP"), ("¥", "CJY"), ("₽", "RUB"), ("₴", "UAH"),
+    ("₹", "INR"), ("₩", "KRW"), ("₺", "TRY"), ("₫", "VND"), ("₪", "ILS"),
+    ("USD", "USD"), ("EUR", "EUR"), ("GBP", "GBP"), ("RUB", "RUB"), ("UAH", "UAH"),
+    ("BRL", "BRL"), ("JPY", "CJY"), ("CNY", "CJY"), ("PLN", "PLN"), ("CZK", "CZK"),
+    ("SEK", "KR"), ("NOK", "KR"), ("DKK", "KR"), ("CHF", "CHF"), ("INR", "INR"),
+    ("KRW", "KRW"), ("TRY", "TRY"), ("CAD", "CAD"), ("AUD", "AUD"),
+]
+# A number, then optional space/nbsp, then the token — or the token then the number. Only
+# money is interesting here: "50 kr" is a price, "Kredit" and "krona" are words, and a rule
+# that fired on those would be muted within a day.
+_CURRENCY_NEAR_NUMBER = [
+    (re.compile(r"(?:(?<=\d)|(?<=\d[  \u00a0\u202f]))" + re.escape(tok) + r"(?![A-Za-z])"), cur)
+    for tok, cur in _CURRENCY_TOKENS
+] + [
+    (re.compile(r"(?<![A-Za-z0-9])" + re.escape(tok) + r"[  \u00a0\u202f]?(?=\d)"), cur)
+    for tok, cur in _CURRENCY_TOKENS
+]
+
+
+def _currencies_in(text: str) -> set:
+    """Which currencies this string quotes a price in. Longest token wins, so R$ never
+    registers as $."""
+    found, seen = set(), []
+    for rx, cur in _CURRENCY_NEAR_NUMBER:
+        for m in rx.finditer(text or ""):
+            span = (m.start(), m.end())
+            # a longer token already claimed this position (R$ before $)
+            if any(a <= span[0] < b for a, b in seen):
+                continue
+            seen.append(span)
+            found.add(cur)
+    return found
+
+
+def _currency_faults(original: str, translated: str) -> list[str]:
+    """The translation quotes a different currency than the source did.
+
+    Not a wording choice — a price. Our homepage line "Lifetime, $79 once" came back from
+    Portuguese as "R$79", dollars turned into reais: about thirteen dollars instead of
+    seventy-nine. The numeric-drift detector was satisfied, because 79 never moved; what
+    moved was the symbol in front of it.
+
+    Deliberately blind to POSITION: "79 $" is correct French typography for "$79", and a
+    detector that flagged it would be wrong more often than right. Symbol and ISO code
+    compare equal for the same reason.
+    """
+    src = _currencies_in(original)
+    tgt = _currencies_in(translated)
+    if not src and not tgt:
+        return []
+    if src == tgt:
+        return []
+    def _show(cs):
+        return ", ".join(sorted(cs)) if cs else "none"
+    if src and not tgt:
+        return [f"currency dropped — the source priced this in {_show(src)}, the translation has no currency"]
+    if tgt and not src:
+        return [f"currency invented — the translation quotes {_show(tgt)}, the source quoted none"]
+    return [f"currency changed: {_show(src)} → {_show(tgt)} — this is a different price, not a translation"]
+
+
 def _lost_glossary(original: str, translated: str, glossary: list[str] | None) -> list[str]:
     """Glossary/brand terms present in the source that did NOT survive (case-insensitive)
     in the translation. A deterministic FACT — the model altered or dropped a term the user
@@ -630,6 +696,8 @@ def string_faults(src, tgt, lang, glossary=None):
     for msg in _numeric_faults(src, tgt):
         out.append({"severity": ERROR, "msg": msg})
     for msg in _entity_faults(src, tgt):
+        out.append({"severity": ERROR, "msg": msg})
+    for msg in _currency_faults(src, tgt):
         out.append({"severity": ERROR, "msg": msg})
     for msg in _icu_faults(src, tgt, lang):
         out.append({"severity": ERROR, "msg": msg})
