@@ -225,6 +225,38 @@ def _extract_numbers(text: str) -> tuple[collections.Counter, dict[str, str]]:
             display.setdefault(key, run)
     return counts, display
 
+# Small numbers written as words. English spells them out, CJK and most locales write digits,
+# and neither is a change of value: "at least one language" → "少なくとも1つの言語" drifted
+# nothing. Without this, translating an English UI into Japanese produced a stream of invented
+# -number errors that were not errors — and warnings nobody believes are warnings nobody reads.
+# Only the English side is listed: it is the source language in essentially every job, and a
+# table per target language would be a large surface for the sake of a rare case.
+_NUMBER_WORDS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+    # Ordinals too — "a third attempt" becomes "3回目" in Japanese just the same.
+    # "second" is deliberately ABSENT: in English it is also a unit of time, and "wait a
+    # second" is far more common in a UI than "a second pass". Including it would trade a
+    # rare miss for a frequent false alarm, which is the wrong way round for a detector
+    # people have to keep trusting.
+    "first": 1, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6,
+    "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10,
+}
+# Whole words only: "someone", "atonement" and "stone" must never read as "one".
+_NUMBER_WORD_RE = re.compile(r"\b(" + "|".join(_NUMBER_WORDS) + r")\b", re.I)
+
+
+def _spelled_numbers(text: str) -> set:
+    """Numbers the ENGLISH source spells out, as their values.
+
+    Used only to FORGIVE, never to accuse — see _numeric_faults. Running this table over a
+    translation instead was a net loss when measured: it cleared four false alarms in Japanese
+    and created thirteen elsewhere, because English number words are ordinary words in other
+    languages. Portuguese "começa do zero" ("starts from scratch") was read as the number nought.
+    """
+    return {_num_key(str(_NUMBER_WORDS[m.group(1).lower()]))
+            for m in _NUMBER_WORD_RE.finditer(text or "")}
+
 def _numeric_faults(original: str, translated: str) -> list[str]:
     """Deterministic number-drift check. Catches the dangerous silent case a meaning-judge can
     miss because the sentence still reads fine: 'Delete 5 files' -> 'Delete 50 files', a wrong
@@ -237,7 +269,8 @@ def _numeric_faults(original: str, translated: str) -> list[str]:
     if src == tr:
         return []
     faults: list[str] = []
-    for num in sorted(tr - src):
+    spelled = _spelled_numbers(original)
+    for num in sorted(set(tr - src) - spelled):
         faults.append(f"number {tr_disp[num]} appears in the translation but not the source")
     if tr:                                   # skip when the translation spelled every number out
         for num in sorted(src - tr):
