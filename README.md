@@ -27,8 +27,8 @@ kaeris init                    # generic config
 kaeris init --preset next-intl # or: i18next, react-i18next, react-intl, vue-i18n, flutter-arb
 ```
 
-Writes a `kaeris.json` in the current directory with `source`, `langs`, `keep`, `tone`, `icu`,
-`only_new`, `out` and `format`. Once it exists, just run:
+Writes a `kaeris.json` in the current directory with `source`, `langs`, `keep`, `context`, `tone`,
+`icu`, `only_new`, `out` and `format`. Once it exists, just run:
 
 ```bash
 kaeris translate
@@ -51,6 +51,11 @@ kaeris translate locales/en.json --langs es,fr,ja --out locales --only-new
 
 # Keep brand/product names verbatim in every language (glossary / do-not-translate)
 kaeris translate locales/en.json --langs es,de --keep "KAERIS,GitHub,OpenRouter"
+# (--glossary is the same flag, if that name is easier to remember)
+
+# Tell the model what the app is, so ambiguous strings get the right sense
+# ("Bank" the money kind, not the river kind; "Play" the game, not the theatre)
+kaeris translate locales/en.json --langs de,ja --context "a mobile bank for teenagers"
 
 # Translation QA — verify meaning (back-translate) and write verify.json to review
 kaeris translate locales/en.json --langs de,ja --verify
@@ -108,8 +113,8 @@ account and no network. **RED** problems fail the build; **YELLOW** are advisory
 - **Lost inline tags** — an HTML/markup tag (`<b>`, `</b>`, …) present in the source is gone.
 - **ICU / CLDR plural completeness** — the target language is missing a plural category its
   CLDR rules require.
-- **Glossary term dropped** (opt-in) — a term listed under `glossary` in kaeris.json isn't
-  carried into the translation.
+- **Glossary term dropped** (opt-in) — a term listed under `keep` in kaeris.json (or passed as
+  `kaeris check --glossary "KAERIS,GitHub"`) isn't carried into the translation.
 
 **YELLOW — advisory warnings (`--strict` to fail):**
 
@@ -191,7 +196,7 @@ string, and no more silently-stale translations when you edit an existing Englis
 
 Change detection is powered by `kaeris.lock` — a small JSON file written next to your source
 file after every incremental run. It records a SHA-256 of each source string **plus the
-settings that produced it**: your tone, your glossary, and the model. Change any of them and
+settings that produced it**: your tone, your glossary, your app context, and the model. Change any of them and
 the whole locale is re-translated, so it never ends up a mix of two tones or two models — the
 model is picked by your plan, so upgrading Free → Pro re-translates rather than blending
 DeepSeek output with GPT-4o-mini. It's what lets

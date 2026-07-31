@@ -111,10 +111,10 @@ def unverified_keys(source_flat, existing_flat, lock):
 LOCK_VERSION = 4
 
 
-def settings_signature(tone="", icu=False, keep=None, model=""):
+def settings_signature(tone="", icu=False, keep=None, model="", app_context=""):
     """Stable signature of everything that changes the translation: tone, ICU handling, the
-    glossary, and the model that produced it. A change to any of these means the WHOLE locale
-    should be retranslated so it stays internally consistent (e.g. switching neutral→formal must
+    glossary, the app context, and the model that produced it. A change to any of these means
+    the WHOLE locale should be retranslated so it stays internally consistent (e.g. switching neutral→formal must
     not leave a mix of both) — that's the reproducibility contract, beyond just tracking edited
     source strings.
 
@@ -123,9 +123,15 @@ def settings_signature(tone="", icu=False, keep=None, model=""):
     the tier picks it (MODEL_FREE vs MODEL_PREMIUM), so upgrading Free→Pro silently switched
     models and left a locale that is half DeepSeek and half GPT-4o-mini while the lock still
     reported everything up to date. Recording it means the upgrade retranslates instead.
+
+    The app context belongs here for the same reason as the tone: it is fed to the model as
+    part of the instruction, so "a bank app" and "a game for kids" give different wordings for
+    the same string. Changing it and keeping half the locale from the previous context is the
+    exact inconsistency this signature exists to prevent.
     """
     keep_norm = sorted(t.strip() for t in (keep or []) if t.strip())
-    return {"tone": tone or "", "icu": bool(icu), "keep": keep_norm, "model": model or ""}
+    return {"tone": tone or "", "icu": bool(icu), "keep": keep_norm, "model": model or "",
+            "app_context": (app_context or "").strip()}
 
 
 def settings_changed(locked, current):
@@ -143,7 +149,7 @@ def settings_changed(locked, current):
     """
     if not isinstance(locked, dict):
         return False
-    for field in ("tone", "icu", "keep"):
+    for field in ("tone", "icu", "keep", "app_context"):
         if field in locked and locked[field] != current.get(field):
             return True
     locked_model, current_model = locked.get("model", ""), current.get("model", "")
