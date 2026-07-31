@@ -115,7 +115,8 @@ class KaerisClient:
         return json.loads(self._get("/api/key/info").decode())
 
     def _multipart(self, filename, content, languages, glossary=None,
-                   verify=False, back_lang="en", tone="", icu=False, reuse=None):
+                   verify=False, back_lang="en", tone="", icu=False, reuse=None,
+                   app_context=""):
         boundary = "----kaeris" + uuid.uuid4().hex
         crlf = b"\r\n"
         parts = []
@@ -155,6 +156,11 @@ class KaerisClient:
             parts.append(b'Content-Disposition: form-data; name="icu"')
             parts.append(b"")
             parts.append(b"true")
+        if app_context:
+            parts.append(b"--" + boundary.encode())
+            parts.append(b'Content-Disposition: form-data; name="app_context"')
+            parts.append(b"")
+            parts.append(app_context.encode())
         if reuse:
             parts.append(b"--" + boundary.encode())
             parts.append(b'Content-Disposition: form-data; name="reuse"')
@@ -166,10 +172,14 @@ class KaerisClient:
         return body, "multipart/form-data; boundary=" + boundary
 
     def submit(self, filename, content, languages, glossary=None,
-               verify=False, back_lang="en", tone="", icu=False, reuse=None):
+               verify=False, back_lang="en", tone="", icu=False, reuse=None,
+               app_context=""):
         """POST a file for translation; returns job_id.
 
         tone: "" (neutral, default) / "formal" / "casual".
+        app_context: a short free-text description of the app ("a bank app for teenagers"),
+             passed to the model so it picks the right sense of ambiguous strings. The API
+             truncates it to 300 characters.
         icu: True to hint the model that values may contain ICU MessageFormat
              (plurals/select) so it preserves the syntax.
         reuse: optional {lang: {key: previous_translation}} translation-memory map;
@@ -179,7 +189,8 @@ class KaerisClient:
         """
         body, ctype = self._multipart(filename, content, languages, glossary,
                                       verify=verify, back_lang=back_lang,
-                                      tone=tone, icu=icu, reuse=reuse)
+                                      tone=tone, icu=icu, reuse=reuse,
+                                      app_context=app_context)
         req = urllib.request.Request(
             self.api_url + "/api/translate", data=body, method="POST",
             headers=self._headers({"Content-Type": ctype}),

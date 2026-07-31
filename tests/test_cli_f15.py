@@ -26,11 +26,13 @@ class FakeClient:
         pass
 
     def submit(self, filename, content, languages, glossary=None, verify=False,
-               back_lang="en", tone="", icu=False, reuse=None):
+               back_lang="en", tone="", icu=False, reuse=None, app_context=""):
         FakeClient.calls.append({
             "filename": filename,
             "content": content,
             "languages": list(languages),
+            "glossary": list(glossary or []),
+            "app_context": app_context,
         })
         return f"job-{len(FakeClient.calls)}"
 

@@ -19,6 +19,7 @@ DEFAULT_CONFIG = {
     "source_lang": "en",
     "langs": ["es", "fr", "de"],
     "keep": [],
+    "context": "",
     "tone": "neutral",
     "icu": False,
     "only_new": False,
@@ -63,7 +64,15 @@ def err(msg):   print(_c("✗", "31"), msg, file=sys.stderr)
 
 
 def _glossary(args):
-    return [t.strip() for t in getattr(args, "keep", "").split(",") if t.strip()]
+    return [t.strip() for t in (getattr(args, "keep", "") or "").split(",") if t.strip()]
+
+
+# The API truncates the app context to this; sending more only wastes the upload.
+APP_CONTEXT_LIMIT = 300
+
+
+def _app_context(args):
+    return (getattr(args, "context", "") or "").strip()[:APP_CONTEXT_LIMIT]
 
 
 def _tone(args):
@@ -86,10 +95,12 @@ def _config_comment(extra=None):
             "multi-namespace projects), source_lang (base language code, e.g. 'en'; used to "
             "detect locales/<lang>/<namespace>.json-style layouts so each target lands next to "
             "its namespace), langs (target language codes), "
-            "keep (glossary terms to never translate), tone (neutral/formal/casual), "
+            "keep (glossary terms to never translate — `kaeris check` fails a target that "
+            "dropped one), context (one line about what the app is, so the model picks the "
+            "right sense of ambiguous strings), tone (neutral/formal/casual), "
             "icu (true if your strings use ICU MessageFormat plurals/select), "
             "only_new (reproducible incremental: translate only new/missing/edited keys — and "
-            "re-translate everything if tone/icu/glossary changed; JSON and ARB), lock (path to the "
+            "re-translate everything if tone/icu/glossary/context changed; JSON and ARB), lock (path to the "
             "incremental lock file; default kaeris.lock next to the source), out (output "
             "directory), format (informational; auto-detected from the source file extension).")
     return base + " " + extra if extra else base
@@ -301,7 +312,13 @@ def cmd_check(args):
             return None
         return _strip_arb_meta(obj) if is_arb else obj
 
-    glossary = config.get("glossary") or None
+    # "keep" is the documented key `kaeris init` writes and `translate` reads; check used to
+    # read only "glossary", a key nothing ever generated — so the dropped-term detector was
+    # silently off in CI for every real project. Flag wins, then either config key.
+    if getattr(args, "glossary", None):
+        glossary = [t.strip() for t in args.glossary.split(",") if t.strip()]
+    else:
+        glossary = config.get("keep") or config.get("glossary") or None
     result = chk.check_locales(source_obj, langs, load_target, glossary)
 
     faults = result.get("faults", [])
@@ -410,7 +427,8 @@ def cmd_translate(args):
         return 1
 
     # Merge remaining options — precedence: explicit CLI flag > kaeris.json > built-in default.
-    args.keep = args.keep if args.keep else ",".join(config.get("keep") or [])
+    args.keep = args.keep if args.keep else ",".join(config.get("keep") or config.get("glossary") or [])
+    args.context = args.context if args.context else (config.get("context") or "")
     if args.tone is None:
         cfg_tone = config.get("tone")
         args.tone = cfg_tone if cfg_tone in ("neutral", "formal", "casual") else "neutral"
@@ -465,7 +483,8 @@ def _translate_one(client, path, langs, args):
     info(f"Translating {fname} → {', '.join(langs)}")
     job = client.submit(fname, content, langs, _glossary(args),
                         verify=args.verify, back_lang=args.back_lang,
-                        tone=_tone(args), icu=args.icu)
+                        tone=_tone(args), icu=args.icu,
+                        app_context=_app_context(args))
     status = client.poll(job, on_progress=None if args.quiet else _progress_printer())
     members = client.download(job)
     written = _write_members(members, path, args.out, args.source_lang)
@@ -561,18 +580,18 @@ def _translate_incremental(client, path, out_dir, langs, args):
     detect_lock = inc.lock_keys(lock_raw)          # глобальный снимок (для совместимости)
     lang_locks = inc.lock_langs(lock_raw)           # состояние по каждому языку
     broken_by_lang: dict[str, set] = {}
-    # Reproducibility: if the tone/ICU/glossary/model changed since the lock was written, an
+    # Reproducibility: if the tone/ICU/glossary/context/model changed since the lock was written, an
     # unchanged source string would still hash-match and be kept — leaving a locale that mixes
     # old and new settings. Detect that and re-translate every key so the output stays consistent.
     cur_settings = inc.settings_signature(_tone(args), args.icu, _glossary(args),
-                                          _current_model(client))
+                                          _current_model(client), _app_context(args))
     locked_settings = inc.lock_settings(lock_raw)
     settings_changed = inc.settings_changed(locked_settings, cur_settings)
     if settings_changed:
         changed_model = (locked_settings or {}).get("model", "") != cur_settings["model"] \
             and (locked_settings or {}).get("model", "")
         why = ("the model changed (tier switch)" if changed_model
-               else "tone/ICU/glossary changed")
+               else "tone/ICU/glossary/context changed")
         info(f"Translation settings changed since the lock — {why}. Re-translating every key "
              "so the whole locale stays consistent")
     # Source keys NOT fully propagated to every language after this run — a key
@@ -609,7 +628,8 @@ def _translate_incremental(client, path, out_dir, langs, args):
         subset = inc.build_subset(source_obj, set(todo), flat_style)
         content = json.dumps(subset, ensure_ascii=False).encode()
         job = client.submit(os.path.basename(path), content, [lang], _glossary(args),
-                            tone=_tone(args), icu=args.icu)
+                            tone=_tone(args), icu=args.icu,
+                            app_context=_app_context(args))
         status = client.poll(job, on_progress=None if args.quiet else _progress_printer())
         members = client.download(job)
         translated = _find_json_member(members, lang)
@@ -774,12 +794,16 @@ def build_parser():
                         "checked them")
     t.add_argument("--lock", default=None,
                    help="Path to the incremental lock file used by --only-new to detect edited "
-                        "source strings and setting changes (tone/icu/glossary), so output stays "
+                        "source strings and setting changes (tone/icu/glossary/context), so output stays "
                         "reproducible (default: kaeris.lock next to the source file, or 'lock' "
                         "in kaeris.json)")
-    t.add_argument("--keep", default=None,
+    t.add_argument("--keep", "--glossary", dest="keep", default=None,
                    help="Comma-separated terms to never translate (brand/product names), e.g. --keep 'KAERIS,GitHub'"
-                        " (default: 'keep' in kaeris.json)")
+                        " (default: 'keep' in kaeris.json). --glossary is the same flag.")
+    t.add_argument("--context", default=None,
+                   help="One line about what the app is, e.g. --context 'a bank app for teenagers'. "
+                        "The model uses it to pick the right sense of ambiguous strings "
+                        f"(max {APP_CONTEXT_LIMIT} chars; default: 'context' in kaeris.json)")
     t.add_argument("--verify", action="store_true",
                    help="Verify meaning: back-translate results into --back-lang and write verify.json to check accuracy")
     t.add_argument("--back-lang", default="en",
@@ -812,6 +836,10 @@ def build_parser():
     c.add_argument("--pattern", default=None,
                    help="Target filename pattern, '{lang}' is replaced with the language code "
                         "(default: '{lang}.json')")
+    c.add_argument("--glossary", "--keep", dest="glossary", default=None,
+                   help="Comma-separated terms the translation must keep verbatim, e.g. "
+                        "--glossary 'KAERIS,GitHub' (default: 'keep' in kaeris.json). "
+                        "A target that dropped one fails the check.")
     c.add_argument("--strict", action="store_true",
                    help="Also fail (non-zero exit) if a target has extra/stale keys not in the source")
     c.add_argument("--json", action="store_true", help="Machine-readable JSON output instead of the human report")
