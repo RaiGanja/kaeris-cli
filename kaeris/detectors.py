@@ -716,6 +716,50 @@ ERROR = "error"
 WARN = "warn"
 
 
+def _glossary_collapse(original: str, translated: str, glossary: list[str] | None) -> list[str]:
+    """A sentence whose translation is nothing but the glossary term(s).
+
+    Asking the model to keep a term verbatim can make it answer with the term and nothing
+    else. Seen in production: three UI questions with glossary=KAERIS came back from German
+    as {"q1": "KAERIS", "q2": "KAERIS", "q3": "KAERIS"} — every string replaced by the word
+    it was told to preserve, and the whole batch went, not only the string that contained
+    the term. Reproduced; it never happens without a glossary.
+
+    Every existing guard is blind to it, which is why this one exists:
+      - _lost_glossary sees the term present and is satisfied;
+      - _untranslated_string strips glossary terms before looking for a real word, so
+        "KAERIS" strips to "" and passes as a name rather than a sentence — the exemption
+        that protects "GitHub Actions" is exactly what hides this.
+
+    Deliberately narrow, so it never fires on a legitimate brand-only label: the SOURCE must
+    be sentence-shaped (3+ words) and the TRANSLATION must retain nothing but glossary terms
+    and punctuation.
+    """
+    if not glossary or not isinstance(original, str) or not isinstance(translated, str):
+        return []
+    terms = [t.strip() for t in glossary if t and t.strip()]
+    if not terms:
+        return []
+
+    src_words = re.findall(r"[^\W\d_]{2,}", original, flags=re.UNICODE)
+    if len(src_words) < 3:
+        return []                       # "KAERIS Pro" losing a word is not this defect
+
+    rest = translated
+    for t in terms:
+        rest = re.sub(re.escape(t), " ", rest, flags=re.I)
+    rest = _PH_RE.sub(" ", rest)
+    rest = _TAG_RE.sub(" ", rest)
+    if re.search(r"[^\W\d_]", rest, flags=re.UNICODE):
+        return []                       # something other than the term survived — a real translation
+
+    # Nothing but the term(s) left, and the source was a sentence: the content is gone.
+    kept = [t for t in terms if t.lower() in translated.lower()]
+    if not kept:
+        return []
+    return [f'translation collapsed to the glossary term "{kept[0]}" — the sentence is gone']
+
+
 def string_faults(src, tgt, lang, glossary=None):
     """All per-string faults between one source value and one target value,
     each tagged error (breaks build) or warn (advisory). Pure/offline."""
@@ -739,6 +783,8 @@ def string_faults(src, tgt, lang, glossary=None):
     if glossary:
         for term in _lost_glossary(src, tgt, glossary):
             out.append({"severity": ERROR, "msg": f"glossary term dropped: {term}"})
+        for msg in _glossary_collapse(src, tgt, glossary):
+            out.append({"severity": ERROR, "msg": msg})
     for msg in _untranslated_string(src, tgt, lang, glossary):
         out.append({"severity": WARN, "msg": msg})
     return out

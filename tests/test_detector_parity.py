@@ -41,7 +41,15 @@ CORPUS = [  # (original, translated, lang)
      "{count, plural, one {Hola, # archivo} other {Hola, # archivos}}", "es"),
     ("Hi {name}", "Hola", "es"),
     ("Order {0:C} for {{user}}", "Bestellung für", "de"),
+    # Glossary collapse (found in production, German, glossary=KAERIS): the model answered
+    # with the term instead of translating. Both copies must agree on it and on the cases
+    # that merely look like it.
+    ("How much does it cost?", "KAERIS", "de"),
+    ("What makes KAERIS different?", "Was unterscheidet KAERIS?", "de"),
+    ("KAERIS Pro", "KAERIS", "de"),
 ]
+
+GLOSSARY = ["KAERIS"]
 
 @unittest.skipIf(BK is None, "backend/translator.py not importable — parity skipped")
 class TestDetectorParity(unittest.TestCase):
@@ -59,6 +67,10 @@ class TestDetectorParity(unittest.TestCase):
             self.assertEqual(d._lost_tags(src, tr), BK._lost_tags(src, tr), (src, tr))
             self.assertEqual(d._untranslated_string(src, tr, lang),
                              BK._untranslated_string(src, tr, lang), (src, tr, lang))
+            self.assertEqual(d._lost_glossary(src, tr, GLOSSARY),
+                             BK._lost_glossary(src, tr, GLOSSARY), (src, tr))
+            self.assertEqual(d._glossary_collapse(src, tr, GLOSSARY),
+                             BK._glossary_collapse(src, tr, GLOSSARY), (src, tr))
 
 if __name__ == "__main__":
     unittest.main()
