@@ -103,6 +103,16 @@ account and no network. **RED** problems fail the build; **YELLOW** are advisory
 
 **RED — breaks the build (non-zero exit):**
 
+### Findings in your pull request
+
+```bash
+kaeris check --source locales/en.json --langs de,fr --out locales --sarif kaeris.sarif
+```
+
+Writes a SARIF 2.1.0 report. Upload it with `github/codeql-action/upload-sarif` and every
+finding becomes an annotation on the exact line of the locale file, inside the diff. Written
+even when the run is clean, so the upload step never fails on a missing file.
+
 - **Missing keys** — a key exists in the source but not in a target (untranslated).
 - **Placeholder mismatch** — a target string's placeholders (`{name}`, `%s`, `%d`, `{{x}}`,
   `${x}`, ICU `{count, plural, ...}`) don't match the source's — dropped, renamed, or
