@@ -321,6 +321,19 @@ def cmd_check(args):
         glossary = config.get("keep") or config.get("glossary") or None
     result = chk.check_locales(source_obj, langs, load_target, glossary)
 
+    if getattr(args, "sarif", None):
+        # Written even when nothing is wrong: upload-sarif fails a workflow if the file is
+        # missing, and "the check passed" must not look like "the step is broken".
+        from . import sarif as _sarif
+        try:
+            _sarif.write(args.sarif, _sarif.build(result, source=path,
+                                                  target_for=_resolve_target,
+                                                  root=os.getcwd()))
+            if not args.json:
+                info(f"SARIF report → {args.sarif}")
+        except OSError as e:
+            warn(f"Could not write SARIF report to {args.sarif}: {e}")
+
     faults = result.get("faults", [])
     warnings = result.get("warnings", [])
     n_missing = sum(len(v) for v in result["missing"].values())
@@ -843,6 +856,10 @@ def build_parser():
     c.add_argument("--strict", action="store_true",
                    help="Also fail (non-zero exit) if a target has extra/stale keys not in the source")
     c.add_argument("--json", action="store_true", help="Machine-readable JSON output instead of the human report")
+    c.add_argument("--sarif", metavar="PATH", default=None,
+                   help="Also write a SARIF 2.1.0 report to PATH. Upload it with "
+                        "github/codeql-action/upload-sarif and every finding appears as an "
+                        "annotation on the exact line in the pull request.")
     c.add_argument("--ci", action="store_true",
                    help="No functional difference from plain `check` — the exit code already gates a "
                         "merge (0 clean, 1 missing/placeholder problem found, 2 bad usage). A stable, "
