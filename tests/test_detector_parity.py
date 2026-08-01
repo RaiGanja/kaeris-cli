@@ -47,6 +47,16 @@ CORPUS = [  # (original, translated, lang)
     ("How much does it cost?", "KAERIS", "de"),
     ("What makes KAERIS different?", "Was unterscheidet KAERIS?", "de"),
     ("KAERIS Pro", "KAERIS", "de"),
+    # Found live 01.08: a short question survived into Russian byte-for-byte (the model
+    # reported 98% confidence), and French answered the question in English instead of
+    # translating it. Both copies must agree on these and on the brand phrase that must NOT
+    # trip them.
+    ("How do I get my API key?", "How do I get my API key?", "ru"),
+    ("How do I get my API key?", "Как получить мой API-ключ?", "ru"),
+    ("GitHub Actions", "GitHub Actions", "ru"),
+    ("Which formats do you support?",
+     "You can get your API key by signing up for an account on the provider's website. "
+     "After registration you will find it in the developer dashboard.", "fr"),
 ]
 
 GLOSSARY = ["KAERIS"]
@@ -71,6 +81,8 @@ class TestDetectorParity(unittest.TestCase):
                              BK._lost_glossary(src, tr, GLOSSARY), (src, tr))
             self.assertEqual(d._glossary_collapse(src, tr, GLOSSARY),
                              BK._glossary_collapse(src, tr, GLOSSARY), (src, tr))
+            self.assertEqual(d._answered_instead_of_translating(src, tr),
+                             BK._answered_instead_of_translating(src, tr), (src, tr))
 
 if __name__ == "__main__":
     unittest.main()
