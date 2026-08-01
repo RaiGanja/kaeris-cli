@@ -574,7 +574,22 @@ def _untranslated_string(original: str, translated: str, lang: str,
         if g:
             s = re.sub(re.escape(g), " ", s, flags=re.I)
     if not _LOWERCASE_WORD_RE.search(s):
-        return []                       # "GitHub Actions Runner" is a name, not a sentence
+        # A name, not a sentence — "GitHub Actions Runner" legitimately stays Latin. But the
+        # rule needs a lowercase word of 4+ letters, and a short question has none: "How do I
+        # get my API key?" survived into Russian byte-for-byte, with the model reporting 98%
+        # confidence, because how/do/get/my/key are all shorter than four letters.
+        #
+        # For a target with its OWN script the script test alone is already decisive — no
+        # Cyrillic anywhere means nothing was translated. What has to stay excluded is the
+        # brand phrase, and those are Title Case ("GitHub Actions"), never mixed case with
+        # function words. So: several words, at least one of them lowercase, and a target
+        # script that is entirely absent.
+        words = re.findall(r"[^\W\d_]+", s, flags=re.UNICODE)
+        looks_like_a_sentence = (
+            len(words) >= 3 and any(w[:1].islower() for w in words)
+        )
+        if not (rx and not rx.search(translated) and looks_like_a_sentence):
+            return []
 
     if rx and not rx.search(translated):
         return ["may be untranslated — no target-language script, still reads as source text"]
@@ -760,6 +775,30 @@ def _glossary_collapse(original: str, translated: str, glossary: list[str] | Non
     return [f'translation collapsed to the glossary term "{kept[0]}" — the sentence is gone']
 
 
+def _answered_instead_of_translating(original: str, translated: str) -> bool:
+    """The model treated the string as a question to answer rather than text to translate.
+
+    Live on 01.08: "How do I get my API key?" (24 chars) came back from French as 250
+    characters of English advice — "You can get your API key by signing up for an account on
+    the service provider's website. After registration…". Nothing about it is a translation.
+
+    The overflow check does see the size (+1017%), but it reports a LAYOUT risk, which sends
+    the customer to inspect their UI for a string whose content is simply gone. Worth its own
+    verdict, and worth repairing rather than warning about.
+
+    Short sources only, and a multiple no honest expansion reaches: German, the longest of the
+    languages we serve, averages +35% and tops out well under double.
+    """
+    if not isinstance(original, str) or not isinstance(translated, str):
+        return False
+    src, tr = original.strip(), translated.strip()
+    if not src or not tr:
+        return False
+    if len(src) > 80:                   # a paragraph legitimately varies in length
+        return False
+    return len(tr) >= max(4 * len(src), 120)
+
+
 def string_faults(src, tgt, lang, glossary=None):
     """All per-string faults between one source value and one target value,
     each tagged error (breaks build) or warn (advisory). Pure/offline."""
@@ -785,6 +824,8 @@ def string_faults(src, tgt, lang, glossary=None):
             out.append({"severity": ERROR, "msg": f"glossary term dropped: {term}"})
         for msg in _glossary_collapse(src, tgt, glossary):
             out.append({"severity": ERROR, "msg": msg})
+    if _answered_instead_of_translating(src, tgt):
+        out.append({"severity": ERROR, "msg": "not a translation — the model answered the string instead of translating it"})
     for msg in _untranslated_string(src, tgt, lang, glossary):
         out.append({"severity": WARN, "msg": msg})
     return out
