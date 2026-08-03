@@ -246,6 +246,11 @@ _NUMBER_WORDS = {
 _NUMBER_WORD_RE = re.compile(r"\b(" + "|".join(_NUMBER_WORDS) + r")\b", re.I)
 
 
+# An ICU arm label — `one {`, `two {`, `=0 {` — is syntax, not prose. Matched only where a
+# label can legally stand: after the construct's comma or after a previous arm's closing brace.
+_ICU_ARM_LABEL_RE = re.compile(r"(?<=[,}])(\s*)(=\d+|\w+)(\s*)(?=\{)")
+
+
 def _spelled_numbers(text: str) -> set:
     """Numbers the ENGLISH source spells out, as their values.
 
@@ -253,9 +258,15 @@ def _spelled_numbers(text: str) -> set:
     translation instead was a net loss when measured: it cleared four false alarms in Japanese
     and created thirteen elsewhere, because English number words are ordinary words in other
     languages. Portuguese "começa do zero" ("starts from scratch") was read as the number nought.
+
+    The CLDR labels of a plural are stripped first: `one` in `one {# item}` is ICU syntax, and
+    reading it as the word "one" made every plural source forgive a literal 1 in its
+    translation. Russian `one` covers 1, 21 and 31, so `one {1 уведомление}` shows "1" to a
+    user who has 21 — a wrong number, silently allowed. Prose is untouched, so a source that
+    really says "at least one language" still forgives.
     """
     return {_num_key(str(_NUMBER_WORDS[m.group(1).lower()]))
-            for m in _NUMBER_WORD_RE.finditer(text or "")}
+            for m in _NUMBER_WORD_RE.finditer(_ICU_ARM_LABEL_RE.sub(r"\1\3", text or ""))}
 
 def _numeric_faults(original: str, translated: str) -> list[str]:
     """Deterministic number-drift check. Catches the dangerous silent case a meaning-judge can
