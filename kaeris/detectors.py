@@ -268,19 +268,37 @@ def _spelled_numbers(text: str) -> set:
     return {_num_key(str(_NUMBER_WORDS[m.group(1).lower()]))
             for m in _NUMBER_WORD_RE.finditer(_ICU_ARM_LABEL_RE.sub(r"\1\3", text or ""))}
 
-def _numeric_faults(original: str, translated: str) -> list[str]:
+# Languages whose counter system spells singularity as a numeral: English "an hour" is
+# Japanese "1時間". The article carries the meaning in one and a digit carries it in the other,
+# so the digit is grammar rather than an invented value. Regional tags share the writing
+# system, so the base subtag is what matters (zh-Hant, ko-KR, ja-JP).
+_COUNTER_LANGS = {"ja", "zh", "ko", "yue", "wuu"}
+# The English indefinite article as a WORD — not the "a" inside "analytics".
+_INDEFINITE_ARTICLE_RE = re.compile(r"\b(a|an)\b", re.I)
+
+
+def _numeric_faults(original: str, translated: str, lang: str = "") -> list[str]:
     """Deterministic number-drift check. Catches the dangerous silent case a meaning-judge can
     miss because the sentence still reads fine: 'Delete 5 files' -> 'Delete 50 files', a wrong
     price, a mangled version. No mainstream TMS diffs the numeric CONTENT of a translation.
     Guarded against two false positives: locale grouping (1,000 vs 1.000 normalize equal) and
     a fully spelled-out translation ('5' -> 'fünf' with no digits left) — the latter is skipped
-    because a translation with NO digits is a legitimate spell-out, not a dropped value."""
+    because a translation with NO digits is a legitimate spell-out, not a dropped value.
+
+    `lang` adds a third, narrow one: a CJK counter turns the English article into a numeral,
+    so "an hour" -> "1時間" is a correct translation carrying a digit the source never had.
+    Forgiven only for the value 1, only when the source really has an article, and only for
+    those languages — Russian writes "через час", so a 1 there is still worth reporting.
+    Omitting `lang` keeps the original strict behaviour for every existing caller."""
     src, src_disp = _extract_numbers(original)
     tr, tr_disp = _extract_numbers(translated)
     if src == tr:
         return []
     faults: list[str] = []
     spelled = _spelled_numbers(original)
+    base = (lang or "").replace("_", "-").split("-")[0].lower()
+    if base in _COUNTER_LANGS and _INDEFINITE_ARTICLE_RE.search(original):
+        spelled = spelled | {_num_key("1")}
     for num in sorted(set(tr - src) - spelled):
         faults.append(f"number {tr_disp[num]} appears in the translation but not the source")
     if tr:                                   # skip when the translation spelled every number out
@@ -820,7 +838,7 @@ def string_faults(src, tgt, lang, glossary=None):
         out.append({"severity": ERROR, "msg": f"lost placeholder {ph}"})
     for msg in _placeholder_type_faults(src, tgt):
         out.append({"severity": ERROR, "msg": msg})
-    for msg in _numeric_faults(src, tgt):
+    for msg in _numeric_faults(src, tgt, lang):
         out.append({"severity": ERROR, "msg": msg})
     for msg in _entity_faults(src, tgt):
         out.append({"severity": ERROR, "msg": msg})
