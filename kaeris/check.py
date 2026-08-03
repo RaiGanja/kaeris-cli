@@ -191,7 +191,19 @@ def check_locales(source_obj, langs, load_target, glossary=None):
                 else:
                     result["warnings"].append({**rec, "severity": "warn"})
         # File-level detectors (overflow / register / consistency) — YELLOW.
-        for f in det.file_faults(source_flat, target_flat, lang):
+        # Same contract as the per-string loop above: the detectors read text, and a locale
+        # legitimately holds numbers, booleans, lists and nulls (`translate` carries them
+        # through untouched, so our own output has them). Guarding only the per-string loop
+        # left `_register_faults` joining a dict with an int in it — a traceback instead of a
+        # verdict, and only in languages that have T–V markers (de/fr/es/it/ru).
+        # Same contract as the per-string loop above: the detectors read text, and a locale
+        # legitimately holds numbers, booleans, lists and nulls (`translate` carries them
+        # through untouched, so our own output has them). Guarding only the per-string loop
+        # left `_register_faults` joining a dict with an int in it — a traceback instead of a
+        # verdict, and only in languages that have T–V markers (de/fr/es/it/ru).
+        src_text = {k: v for k, v in source_flat.items() if isinstance(v, str)}
+        tgt_text = {k: v for k, v in target_flat.items() if isinstance(v, str)}
+        for f in det.file_faults(src_text, tgt_text, lang):
             result["warnings"].append({"lang": lang, "msg": f["msg"], "severity": "warn"})
 
     return result

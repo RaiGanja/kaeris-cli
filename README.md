@@ -69,11 +69,14 @@ Output files are written next to the source (or into `--out`), named by language
 
 ## Authentication & tiers
 
-| Tier | How | Limit |
-|------|-----|-------|
-| **Free** (anonymous) | no key | 10,000 chars/file |
-| **Pro / Scale** | `--key kaerisp_…` or `KAERIS_API_KEY` | 200k / 500k chars/file |
-| **Lifetime (BYOK)** | `--key` **and** `--openrouter-key sk-or-…` | unlimited (you pay OpenRouter for tokens) |
+| Tier | How | Chars per file | Languages per run |
+|------|-----|----------------|-------------------|
+| **Free** (anonymous) | no key | 10,000 | 8 |
+| **Pro / Scale** | `--key kaerisp_…` or `KAERIS_API_KEY` | 200k / 500k | all 46 |
+| **Lifetime (BYOK)** | `--key` **and** `--openrouter-key sk-or-…` | unlimited (you pay OpenRouter for tokens) | all 46 |
+
+All 46 languages are available to everyone — the free tier translates up to **8 of them per
+run**, so `--langs` with a longer list is refused before anything is charged or written.
 
 ```bash
 export KAERIS_API_KEY=kaerisp_xxxxxxxx
@@ -103,16 +106,6 @@ account and no network. **RED** problems fail the build; **YELLOW** are advisory
 
 **RED — breaks the build (non-zero exit):**
 
-### Findings in your pull request
-
-```bash
-kaeris check --source locales/en.json --langs de,fr --out locales --sarif kaeris.sarif
-```
-
-Writes a SARIF 2.1.0 report. Upload it with `github/codeql-action/upload-sarif` and every
-finding becomes an annotation on the exact line of the locale file, inside the diff. Written
-even when the run is clean, so the upload step never fails on a missing file.
-
 - **Missing keys** — a key exists in the source but not in a target (untranslated).
 - **Placeholder mismatch** — a target string's placeholders (`{name}`, `%s`, `%d`, `{{x}}`,
   `${x}`, ICU `{count, plural, ...}`) don't match the source's — dropped, renamed, or
@@ -141,6 +134,18 @@ usage (source not found, no languages given, etc.) — drop it straight into CI:
 ```
 
 JSON and ARB for now (ARB `@`-metadata is ignored); more formats land next release.
+
+### Findings in your pull request
+
+```bash
+kaeris check --source locales/en.json --langs de,fr --out locales --sarif kaeris.sarif
+```
+
+Writes a SARIF 2.1.0 report (kaeris ≥ 0.2.12). Upload it with
+`github/codeql-action/upload-sarif` and every finding becomes an annotation on the exact line
+of the locale file, inside the diff — the GitHub Action takes it as `sarif-file`. Written even
+when the run is clean, so the upload step never fails on a missing file. Inline annotations are
+free on public repositories; private ones need GitHub Advanced Security.
 
 ## CI/CD (GitHub Actions) — translations as PRs, plus an i18n firewall
 
@@ -215,6 +220,43 @@ plain "is this key missing?" check would skip the key and leave the old (now wro
 in place. Commit `kaeris.lock` alongside your source file so the check works across machines/CI.
 Override its location with `--lock PATH` or `"lock"` in `kaeris.json` (default: `kaeris.lock`
 next to the source).
+
+## All flags
+
+Anything not passed falls back to `kaeris.json`, then to the built-in default.
+
+**`kaeris translate [FILE]`**
+
+| Flag | What it does |
+|------|--------------|
+| `--langs es,fr,ja` | target languages (`kaeris languages` lists all 46) |
+| `--out DIR` | where to write; default is next to the source |
+| `--only-new` / `--no-only-new` | translate only new/changed keys (JSON, ARB) — or force a full run |
+| `--lock PATH` | where `kaeris.lock` lives (default: next to the source) |
+| `--assume-current` | first incremental run on a project already translated: trust the existing target strings instead of re-translating everything |
+| `--keep "A,B"` / `--glossary "A,B"` | terms to carry over verbatim (two names for one flag) |
+| `--context "…"` | one line about the app, so ambiguous words get the right sense |
+| `--tone neutral\|formal\|casual` | tone of voice |
+| `--icu` / `--no-icu` | hint that strings use ICU MessageFormat, so plurals/select survive |
+| `--source-lang en` | base language code; also detects `locales/<lang>/<namespace>.json` layouts |
+| `--verify` | back-translate and write `verify.json` so you can check the meaning |
+| `--back-lang en` | language to back-translate into with `--verify` |
+| `--quiet` | no progress output |
+
+**`kaeris check`**
+
+| Flag | What it does |
+|------|--------------|
+| `--source FILE`, `--langs`, `--out DIR` | what to compare (or leave them to `kaeris.json`) |
+| `--pattern "{lang}.json"` | target filename pattern — set it if your locales are named `de/common.json`, `strings.de.json`, … |
+| `--strict` | also fail on extra/stale keys and YELLOW warnings |
+| `--json` | machine-readable result |
+| `--ci` | same exit-code contract, a stable entry point for pipelines |
+| `--glossary "A,B"` | fail a target that dropped one of these terms |
+| `--sarif FILE` | write a SARIF 2.1.0 report (needs kaeris ≥ 0.2.12) |
+
+**`kaeris init`** — `--preset NAME`, `--force` (overwrite an existing `kaeris.json`).
+**Global** — `--key`, `--openrouter-key`, `--config PATH` (before the subcommand), `--version`.
 
 ## Environment variables
 
