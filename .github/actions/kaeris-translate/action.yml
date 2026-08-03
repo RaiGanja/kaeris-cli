@@ -39,6 +39,14 @@ inputs:
     description: "translate mode: hint that source strings use ICU MessageFormat (plurals/select) so it's preserved."
     required: false
     default: "false"
+  sarif-file:
+    description: >-
+      check mode: also write a SARIF 2.1.0 report here. Upload it with
+      github/codeql-action/upload-sarif and every finding becomes an annotation on the exact
+      line of the locale file, inside the pull request. Empty (default) writes nothing.
+    required: false
+    default: ""
+
   strict:
     description: "check mode: also fail if a target locale has extra/stale keys not in the source."
     required: false
@@ -78,7 +86,11 @@ runs:
 
     - name: Install KAERIS CLI
       shell: bash
-      run: pip install kaeris
+      # Pin to the version that ships every flag this action passes — the `check --json --ci`
+      # firewall, the incremental flags, and `--sarif`. Unpinned, a runner can be handed an
+      # older CLI that lacks one and the job dies on "unrecognized arguments": that is exactly
+      # how the SARIF gap showed up by hand on 03.08.2026.
+      run: pip install "kaeris>=0.2.12"
 
     - name: Run KAERIS (${{ inputs.mode }})
       id: run
@@ -95,6 +107,7 @@ runs:
         KA_TONE: ${{ inputs.tone }}
         KA_ICU: ${{ inputs.icu }}
         KA_STRICT: ${{ inputs.strict }}
+        KA_SARIF: ${{ inputs.sarif-file }}
       run: |
         set -e
         out="$KA_OUT"
@@ -116,7 +129,9 @@ runs:
         if [ "$KA_MODE" = "check" ]; then
           # The i18n firewall: static, no API call. Result captured to JSON; exit code decides the gate below.
           set +e
-          kaeris check --source "$KA_SOURCE" --langs "$KA_LANGS" --out "$out" --ci "${strict_flag[@]}" --json > "$after_json"
+          sarif_flag=()
+          [ -n "$KA_SARIF" ] && sarif_flag+=(--sarif "$KA_SARIF")
+          kaeris check --source "$KA_SOURCE" --langs "$KA_LANGS" --out "$out" --ci "${strict_flag[@]}" "${sarif_flag[@]}" --json > "$after_json"
           check_exit=$?
           set -e
         else
