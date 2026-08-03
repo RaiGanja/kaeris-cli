@@ -212,9 +212,10 @@ string, and no more silently-stale translations when you edit an existing Englis
 Change detection is powered by `kaeris.lock` — a small JSON file written next to your source
 file after every incremental run. It records a SHA-256 of each source string **plus the
 settings that produced it**: your tone, your glossary, your app context, and the model. Change any of them and
-the whole locale is re-translated, so it never ends up a mix of two tones or two models — the
-model is picked by your plan, so upgrading Free → Pro re-translates rather than blending
-DeepSeek output with GPT-4o-mini. It's what lets
+the whole locale is re-translated, so it never ends up a mix of two tones or two models. Every
+tier runs the same model (GPT-4o-mini), so a plan change alone never forces a re-translation —
+the lock records the model anyway, so the day we change it, you find out from a full re-run
+rather than from a locale quietly built by two models. It's what lets
 `--only-new` notice an edited key even though it's still present in the target; without it, a
 plain "is this key missing?" check would skip the key and leave the old (now wrong) translation
 in place. Commit `kaeris.lock` alongside your source file so the check works across machines/CI.
