@@ -81,6 +81,8 @@ class TestDetectorParity(unittest.TestCase):
                              BK._lost_glossary(src, tr, GLOSSARY), (src, tr))
             self.assertEqual(d._glossary_collapse(src, tr, GLOSSARY),
                              BK._glossary_collapse(src, tr, GLOSSARY), (src, tr))
+            self.assertEqual(d._glossary_case_drift(src, tr, GLOSSARY),
+                             BK._glossary_case_drift(src, tr, GLOSSARY), (src, tr))
             self.assertEqual(d._answered_instead_of_translating(src, tr),
                              BK._answered_instead_of_translating(src, tr), (src, tr))
 

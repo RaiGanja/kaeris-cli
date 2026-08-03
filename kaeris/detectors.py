@@ -756,6 +756,44 @@ def _lost_glossary(original: str, translated: str, glossary: list[str] | None) -
     return sorted(set(out))
 
 
+def _glossary_case_drift(original: str, translated: str,
+                         glossary: list[str] | None) -> list[str]:
+    """A locked term that survived but came back re-cased: KAERIS -> Kaeris-System.
+
+    `--keep` promises the term stays VERBATIM, and _lost_glossary is case-insensitive by
+    design (bias to under-flag), so a mangled brand passed as clean. Split out rather than
+    folded into that check because the two are different facts with different costs: a term
+    that vanished breaks meaning and fails the build; a term that changed case reads wrong
+    but must not turn someone's CI red over a capital letter.
+
+    Compared against the SOURCE spelling, never the glossary entry — a project that lists
+    `kaeris` while writing `KAERIS` in its strings is not broken. The leading letter is
+    forgiven for the same reason: German capitalises nouns and any language capitalises the
+    start of a sentence, so `npm` -> `Npm` at position 0 is grammar, not mangling.
+    """
+    if not glossary:
+        return []
+    out = []
+    for term in glossary:
+        t = (term or "").strip()
+        if not t:
+            continue
+        forms = set(re.findall(re.escape(t), original, re.IGNORECASE))
+        if not forms:
+            continue
+        seen = re.search(re.escape(t), translated, re.IGNORECASE)
+        if not seen:
+            continue                     # gone entirely — that is _lost_glossary's error
+        accepted = set()
+        for f in forms:
+            accepted |= {f, f[:1].upper() + f[1:], f[:1].lower() + f[1:]}
+        if any(a in translated for a in accepted):
+            continue
+        expected = sorted(forms)[0]
+        out.append(f'{expected} appears as "{seen.group(0)}" — a kept term keeps its exact case')
+    return sorted(set(out))
+
+
 ERROR = "error"
 WARN = "warn"
 
@@ -853,6 +891,10 @@ def string_faults(src, tgt, lang, glossary=None):
             out.append({"severity": ERROR, "msg": f"glossary term dropped: {term}"})
         for msg in _glossary_collapse(src, tgt, glossary):
             out.append({"severity": ERROR, "msg": msg})
+        # Case drift is advisory: the brand reads wrong, but a capital letter must not turn
+        # somebody's CI red — the target language's grammar may legitimately require it.
+        for msg in _glossary_case_drift(src, tgt, glossary):
+            out.append({"severity": WARN, "msg": f"glossary case: {msg}"})
     if _answered_instead_of_translating(src, tgt):
         out.append({"severity": ERROR, "msg": "not a translation — the model answered the string instead of translating it"})
     for msg in _untranslated_string(src, tgt, lang, glossary):
