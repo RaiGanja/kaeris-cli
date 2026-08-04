@@ -10,6 +10,7 @@ locally or in CI/CD. Format-aware, placeholder-safe, and **incremental** (only n
 - **Incremental** — `--only-new` translates just the keys you added, merges the rest
 - **Translation QA** — flags dropped placeholders & UI-overflow risk; `--verify` back-translates so you can check the meaning
 - **`kaeris check`** — an i18n firewall: fails CI if a locale is untranslated or placeholder-broken, no API call
+- **`kaeris quota`** — how much of your monthly volume is left, before a big run rather than after
 - **CI-ready** — GitHub Action included; open a PR with fresh translations on every push
 
 ## Install
@@ -85,6 +86,22 @@ kaeris translate en.json --langs de,uk
 ```
 
 Get a key at <https://kaeris.dev/pricing.html>. A free OpenRouter key: <https://openrouter.ai/keys>.
+
+## `kaeris quota` — how much of the month is left
+
+Paid plans include a monthly character volume (Pro 30M, Scale 75M, Team/API 150M, counted as
+characters × languages). Ask before a large run, rather than finding out from a refusal in the
+middle of one:
+
+```bash
+kaeris quota
+# ✓ Monthly volume: 1.2M of 30M used · 28.8M left · resets 2026-09-01
+```
+
+Every `kaeris translate` prints the same line when it finishes, and raises it to a warning once
+**80%** of the month is spent — the point at which we also email the address the plan was bought
+with, and again at **95%**. Lifetime (BYOK) has no monthly volume: you pay OpenRouter for tokens
+directly.
 
 ## `kaeris check` — the i18n firewall
 
@@ -257,6 +274,7 @@ Anything not passed falls back to `kaeris.json`, then to the built-in default.
 | `--sarif FILE` | write a SARIF 2.1.0 report (needs kaeris ≥ 0.2.12) |
 
 **`kaeris init`** — `--preset NAME`, `--force` (overwrite an existing `kaeris.json`).
+**`kaeris quota`** — no flags; reads the key from `--key` or `KAERIS_API_KEY` (needs kaeris ≥ 0.2.15).
 **Global** — `--key`, `--openrouter-key`, `--config PATH` (before the subcommand), `--version`.
 
 ## Environment variables
