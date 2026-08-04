@@ -1,6 +1,7 @@
 """KAERIS i18n command-line interface."""
 
 import argparse
+import re
 import glob
 import json
 import os
@@ -10,6 +11,7 @@ from . import __version__
 from .client import KaerisClient, KaerisError, DEFAULT_API
 from . import incremental as inc
 from . import check as chk
+from . import xcstrings as xc
 
 CONFIG_FILENAME = "kaeris.json"
 
@@ -322,6 +324,29 @@ def cmd_languages(args):
     return 0
 
 
+_XC_MARKER_RE = re.compile(r"((?:⟦[^⟦⟧]*⟧)+)")
+
+
+def _pretty_key(text):
+    """Make a String Catalog's synthetic sub-keys readable, wherever they appear.
+
+    Keys inside a catalog are addressed as `%lld items⟦plural⟧` or `cart⟦sub:count⟧⟦plural⟧`,
+    so a plural set and a device arm can be told apart from the plain string. That encoding is
+    ours, not the developer's — printing it raw asks them to decode our bookkeeping to find the
+    line of their file that is wrong.
+
+    Applied to whole messages, not just the key field: some detectors put the key inside their
+    own sentence, and a half-decoded output is worse than none."""
+    if not text or "⟦" not in text:
+        return text
+
+    def _one(m):
+        parts = [p for p in m.group(1).strip("⟦⟧").split("⟧⟦") if p]
+        return " (" + ", ".join(p.replace(":", " ") for p in parts) + ")"
+
+    return _XC_MARKER_RE.sub(_one, text)
+
+
 def cmd_check(args):
     """The i18n firewall: compare source vs each target locale, no API call.
     Exits non-zero if anything is missing/broken so CI can gate a merge on it."""
@@ -337,11 +362,12 @@ def cmd_check(args):
     if not path or not os.path.isfile(path):
         err(f"Source file not found: {path or raw_path}")
         return 2
-    if not path.lower().endswith((".json", ".arb")):
-        err(f"kaeris check currently supports JSON and ARB (got {path}) — "
-            "other formats land next release")
+    if not path.lower().endswith((".json", ".arb", ".xcstrings")):
+        err(f"kaeris check currently supports JSON, ARB and Xcode String Catalogs "
+            f"(got {path}) — other formats land next release")
         return 2
     is_arb = path.lower().endswith(".arb")
+    is_catalog = xc.is_catalog(path)
 
     def _strip_arb_meta(obj):
         # ARB non-translatable metadata is top-level '@'-prefixed (@@locale, @key).
@@ -371,18 +397,37 @@ def cmd_check(args):
             return os.path.join(out_dir, args.pattern.format(lang=lang))
         return _target_path(path, lang, out_dir, source_lang)
 
-    try:
-        source_obj = inc.load_json(path)
-    except (OSError, ValueError) as e:
-        err(f"Could not read source file {path}: {e}")
-        return 2
-    if not isinstance(source_obj, dict):
-        err(f"Invalid source file {path}: expected a JSON object")
-        return 2
-    if is_arb:
-        source_obj = _strip_arb_meta(source_obj)
+    # A String Catalog holds the source AND every translation in one document, so there is
+    # no per-language file to resolve — both sides come out of the same parse.
+    catalog = None
+    if is_catalog:
+        try:
+            cat_source_lang, catalog = xc.load(path)
+        except (OSError, ValueError) as e:
+            err(f"Could not read String Catalog {path}: {e}")
+            return 2
+        source_lang = config.get("source_lang") or cat_source_lang
+        source_obj = catalog.get(source_lang) or {}
+        if not source_obj:
+            err(f"No strings for the source language '{source_lang}' in {path}")
+            return 2
+    else:
+        try:
+            source_obj = inc.load_json(path)
+        except (OSError, ValueError) as e:
+            err(f"Could not read source file {path}: {e}")
+            return 2
+        if not isinstance(source_obj, dict):
+            err(f"Invalid source file {path}: expected a JSON object")
+            return 2
+        if is_arb:
+            source_obj = _strip_arb_meta(source_obj)
 
     def load_target(lang):
+        if is_catalog:
+            # Absent from the catalog is the same as an absent file: every key is missing,
+            # which is exactly what a developer who added a language wants to be told.
+            return catalog.get(lang)
         target_path = _resolve_target(lang)
         if not os.path.isfile(target_path):
             return None
@@ -443,25 +488,29 @@ def cmd_check(args):
                 ok(f"{lang}: complete & placeholder-safe")
                 continue
             if missing:
-                err(f"{lang}: {len(missing)} missing key(s): {', '.join(missing[:10])}"
+                err(f"{lang}: {len(missing)} missing key(s): "
+                    f"{', '.join(_pretty_key(k) for k in missing[:10])}"
                     + (" ..." if len(missing) > 10 else ""))
             if issues:
                 err(f"{lang}: {len(issues)} placeholder mismatch(es):")
                 for i in issues:
-                    print(f"    {i['key']}: missing {i['missing'] or '-'}, added {i['added'] or '-'}",
+                    print(_pretty_key(f"    {i['key']}: missing {i['missing'] or '-'}, "
+                                      f"added {i['added'] or '-'}"),
                           file=sys.stderr)
             if lang_faults:
                 err(f"{lang}: {len(lang_faults)} translation fault(s):")
                 for f in lang_faults:
-                    print(f"    {f.get('key', '')}: {f['msg']}", file=sys.stderr)
+                    print(_pretty_key(f"    {f.get('key', '')}: {f['msg']}"), file=sys.stderr)
             if lang_warns:
                 level = err if args.strict else warn
                 level(f"{lang}: {len(lang_warns)} warning(s):")
                 for w in lang_warns:
-                    print(f"    {w.get('key', '')}: {w['msg']}".rstrip(), file=sys.stderr)
+                    print(_pretty_key(f"    {w.get('key', '')}: {w['msg']}".rstrip()),
+                          file=sys.stderr)
             if extra:
                 level = err if args.strict else warn
-                level(f"{lang}: {len(extra)} extra/stale key(s): {', '.join(extra[:10])}"
+                level(f"{lang}: {len(extra)} extra/stale key(s): "
+                      f"{', '.join(_pretty_key(k) for k in extra[:10])}"
                       + (" ..." if len(extra) > 10 else ""))
 
         if fail:

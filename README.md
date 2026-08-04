@@ -158,7 +158,22 @@ usage (source not found, no languages given, etc.) — drop it straight into CI:
 - run: kaeris check --source locales/en.json --langs es,fr,de,ja --out locales
 ```
 
-JSON and ARB for now (ARB `@`-metadata is ignored); more formats land next release.
+JSON, ARB (its `@`-metadata is ignored) and **Xcode String Catalogs**; more formats land next
+release.
+
+A `.xcstrings` is checked differently because the format is different: the source language and
+every translation live in one file, so there is nothing to open per language — both sides come
+out of the same parse.
+
+```bash
+kaeris check --source Localizable.xcstrings --langs de,ru,ar
+```
+
+Worth running even if you never translate with us: Xcode does not fail a build for a missing
+translation, and it says nothing at all when a Russian plural carries only the two forms English
+had — which reads wrong to every user whose count ends in 2, 3 or 4. Entries marked
+`shouldTranslate: false` are not demanded, and a key with no localization at all counts as its
+own source string, the way Xcode treats it.
 
 ### Findings in your pull request
 
