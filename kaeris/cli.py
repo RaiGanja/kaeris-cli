@@ -63,6 +63,84 @@ def warn(msg):  print(_c("!", "33"), msg, file=sys.stderr)
 def err(msg):   print(_c("✗", "31"), msg, file=sys.stderr)
 
 
+# ── Monthly volume ────────────────────────────────────────────────────────────
+# Percentages of the paid monthly volume at which the remaining-quota line stops being an
+# aside. The same two steps colour the badge on the site and trigger the warning email — the
+# server's main.QUOTA_NOTICE_PCT is the source, and a backend test fails if these drift from
+# it. Before 04.08.2026 the CLI showed the monthly volume nowhere at all: a customer running
+# translations from CI first heard about their quota when a run was refused.
+QUOTA_WARN_PCT = 80
+QUOTA_CRIT_PCT = 95
+
+
+def _fmt_chars(n):
+    """1_234_567 -> '1.2M', 45_000 -> '45k'. Always floors: rounding 29,786,587 up to '30M'
+    reads as 'nothing spent yet', which is the opposite of what the number is for."""
+    n = max(0, int(n))
+    if n >= 1_000_000:
+        return f"{n // 100_000 / 10:g}M"
+    if n >= 1_000:
+        return f"{n // 1_000}k"
+    return str(n)
+
+
+def _quota_line(info_json):
+    """(text, level) for a key's monthly volume, or None if this key has no monthly volume
+    (no key at all, or Lifetime/BYOK which is uncapped). level is 'ok'/'warn'/'crit'."""
+    cap = info_json.get("month_cap") or 0
+    if not cap:
+        return None
+    used = int(info_json.get("month_used") or 0)
+    left = int(info_json.get("month_remaining", max(0, cap - used)))
+    pct = used * 100 / cap
+    level = "crit" if pct >= QUOTA_CRIT_PCT else "warn" if pct >= QUOTA_WARN_PCT else "ok"
+    text = (f"Monthly volume: {_fmt_chars(used)} of {_fmt_chars(cap)} used · "
+            f"{_fmt_chars(left)} left · resets {info_json.get('month_resets', '')}".rstrip(" ·"))
+    return text, level
+
+
+def _show_quota(client):
+    """Print the monthly volume after a run. Best-effort by design, exactly like
+    _current_model: an older server has no month_* fields and an unreachable one has nothing.
+    A courtesy line must never turn a delivered translation into a failure."""
+    try:
+        line = _quota_line(client.key_info())
+    except Exception:
+        return
+    if not line:
+        return
+    text, level = line
+    if level == "crit":
+        warn(text + "  — nearly out; raise it at kaeris.dev/pricing.html")
+    elif level == "warn":
+        warn(text)
+    else:
+        info(text)
+
+
+def cmd_quota(args):
+    """Answer 'how much have I got left' BEFORE a big run, not after one."""
+    client = _client(args)
+    try:
+        data = client.key_info()
+    except KaerisError as e:
+        err(str(e))
+        return 2
+    line = _quota_line(data)
+    if not line:
+        tier = data.get("tier") or "none"
+        if tier in ("none", "free") and not (args.key or os.environ.get("KAERIS_API_KEY")):
+            info("No API key — the keyless demo has no monthly volume. "
+                 "Get a free key at kaeris.dev/developer")
+        else:
+            info(f"Plan '{tier}' has no monthly volume cap "
+                 "(Lifetime/BYOK runs on your own OpenRouter key).")
+        return 0
+    text, level = line
+    (warn if level in ("warn", "crit") else ok)(text)
+    return 0
+
+
 def _glossary(args):
     return [t.strip() for t in (getattr(args, "keep", "") or "").split(",") if t.strip()]
 
@@ -469,6 +547,10 @@ def cmd_translate(args):
             err(str(e))
             code = 1
         exit_code = max(exit_code, code)
+    # What the run cost of the month, once per invocation rather than once per file — and here
+    # rather than inside _translate_one so the incremental (--only-new) path, which returns
+    # earlier, reports it too.
+    _show_quota(client)
     return exit_code
 
 
@@ -876,6 +958,14 @@ def build_parser():
                         "next-intl, react-intl, vue-i18n, flutter-arb")
     i.add_argument("--force", action="store_true", help=f"Overwrite an existing {CONFIG_FILENAME}")
     i.set_defaults(func=cmd_init)
+
+    q = sub.add_parser(
+        "quota", help="Show how much of this month's volume is left",
+        description="Show the monthly character volume on your key: used, left, and the date "
+                    "it comes back. Ask BEFORE a large run — a run that needs more than is "
+                    "left is refused, and the answer used to arrive only as that refusal.",
+    )
+    q.set_defaults(func=cmd_quota)
 
     return p
 
