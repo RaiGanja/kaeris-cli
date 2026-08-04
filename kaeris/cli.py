@@ -12,6 +12,7 @@ from .client import KaerisClient, KaerisError, DEFAULT_API
 from . import incremental as inc
 from . import check as chk
 from . import xcstrings as xc
+from . import tm as tmem
 
 CONFIG_FILENAME = "kaeris.json"
 
@@ -655,6 +656,58 @@ def cmd_translate(args):
     return exit_code
 
 
+def _tm_signature(args, client):
+    """The settings a remembered translation was produced under. Same components the lock
+    uses — a string translated formally, or under a different glossary or model, is a
+    different answer and must not be served from memory."""
+    return inc.settings_signature(tone=_tone(args), icu=args.icu, keep=_glossary(args),
+                                  model=_current_model(client), app_context=_app_context(args))
+
+
+def _tm_open(args, path):
+    """(memory, file path) or (None, None) when the project memory does not apply.
+
+    Only JSON and ARB: looking a string UP before a run needs the source flattened locally,
+    and that is the only thing this dependency-free package can flatten. Recording for the
+    other formats would grow a file that is written and never read — worse than not having
+    one, because it looks like a feature."""
+    if getattr(args, "no_tm", False):
+        return None, None
+    if not path.lower().endswith((".json", ".arb")):
+        return None, None
+    tm_path = tmem.default_path(path, getattr(args, "tm", None))
+    return tmem.load(tm_path), tm_path
+
+
+def _tm_reuse(memory, source_flat, langs, sig):
+    """What the API can skip entirely. Handed over as its `reuse` map — strings it does not
+    translate are strings it does not charge for."""
+    if memory is None:
+        return None, 0
+    hits = tmem.lookup(memory, source_flat, langs, sig)
+    n = sum(len(v) for v in hits.values())
+    return (hits or None), n
+
+
+def _tm_commit(memory, tm_path, source_flat, preview, sig):
+    """Fold this run's results back into the project memory."""
+    if memory is None or not preview:
+        return
+    translations = {k: v for k, v in preview.items()
+                    if not k.startswith("_") and isinstance(v, dict)}
+    added = tmem.record(memory, source_flat, translations, sig)
+    if not added:
+        return
+    try:
+        tmem.save(tm_path, memory, lambda p, body: write_atomic(p, body))
+    except OSError as e:
+        warn(f"could not write the project memory {tm_path}: {e}")
+        return
+    strings, pairs = tmem.count(memory)
+    info(f"Project memory: +{added} · {strings} strings, {pairs} translations in "
+         f"{os.path.basename(tm_path)}")
+
+
 def _translate_one(client, path, langs, args):
     """Translate a single resolved source file. Returns 0 (clean), 3 (some
     languages fell back to source text) or 1 (a per-file error — the caller
@@ -676,8 +729,27 @@ def _translate_one(client, path, langs, args):
     with open(path, "rb") as f:
         content = f.read()
 
+    # Project memory: everything already translated under these settings, whatever key or
+    # file it lived in last time. The API skips those and does not charge for them.
+    memory, tm_path = _tm_open(args, path)
+    sig = _tm_signature(args, client) if memory is not None else ""
+    # One job per language here, so one receipt per language. --receipt used to write nothing
+    # at all on this path: a documented flag that silently does nothing is worse than one that
+    # does not exist.
+    receipts = []
+    source_flat = {}
+    if memory is not None:
+        try:
+            source_flat = inc.flatten(inc.load_json(path)) if fname.lower().endswith(
+                (".json", ".arb")) else {}
+        except (OSError, ValueError):
+            source_flat = {}
+    reuse, n_reused = _tm_reuse(memory, source_flat, langs, sig)
+    if n_reused:
+        info(f"Project memory: {n_reused} string/language pair(s) reused, not re-translated")
+
     info(f"Translating {fname} → {', '.join(langs)}")
-    job = client.submit(fname, content, langs, _glossary(args),
+    job = client.submit(fname, content, langs, _glossary(args), reuse=reuse,
                         verify=args.verify, back_lang=args.back_lang,
                         tone=_tone(args), icu=args.icu,
                         app_context=_app_context(args))
@@ -688,7 +760,10 @@ def _translate_one(client, path, langs, args):
     for w in written:
         print(w)
     # Translation QA — placeholder loss + UI-overflow (free), plus back-translation if --verify
-    _show_qa(client, job, display_out, args.verify, args.back_lang)
+    data = _show_qa(client, job, display_out, args.verify, args.back_lang)
+    if memory is not None:
+        _tm_commit(memory, tm_path, source_flat or (data or {}).get("_source") or {},
+                   data, sig)
     rec = _show_receipt(client, job)
     if rec and getattr(args, "receipt", None):
         write_atomic(args.receipt, json.dumps(rec, ensure_ascii=False, indent=2))
@@ -706,7 +781,7 @@ def _show_qa(client, job, out_dir, verify, back_lang):
     try:
         data = client.preview(job)
     except KaerisError:
-        return
+        return None
     warnings = data.get("_warnings") or {}
     qa = data.get("_qa") or {}
     back = data.get("_back") or {}
@@ -736,6 +811,9 @@ def _show_qa(client, job, out_dir, verify, back_lang):
 
     if not ph and not over:
         ok("Translation QA: no placeholder loss, no overflow risks")
+    # Returned so the caller can fold the results into the project memory without a second
+    # round trip for the same payload.
+    return data
 
 
 def _arb_meta_key(flat_key):
@@ -763,6 +841,12 @@ def _translate_incremental(client, path, out_dir, langs, args):
     is_arb = path.lower().endswith(".arb")
     source_obj = inc.load_json(path)
     source_flat = inc.flatten(source_obj)
+    memory, tm_path = _tm_open(args, path)
+    sig = _tm_signature(args, client) if memory is not None else ""
+    # One job per language here, so one receipt per language. --receipt used to write nothing
+    # at all on this path: a documented flag that silently does nothing is worse than one that
+    # does not exist.
+    receipts = []
     if is_arb:
         # ARB metadata (@@locale, @key.placeholders...) is not translatable text —
         # drop it from detection and (via todo) from the submitted subset so it's
@@ -827,8 +911,14 @@ def _translate_incremental(client, path, out_dir, langs, args):
             info(f"{lang}: {len(todo)} new key(s) to translate")
         subset = inc.build_subset(source_obj, set(todo), flat_style)
         content = json.dumps(subset, ensure_ascii=False).encode()
+        # Of the keys the lock says still need work, some are renames and moves of text we
+        # have already translated. Those are exactly what the lock cannot see and the project
+        # memory can — and the API does not charge for what it is told it already knows.
+        reuse, n_reused = _tm_reuse(memory, todo, [lang], sig)
+        if n_reused:
+            info(f"{lang}: {n_reused} of them come from the project memory, not the model")
         job = client.submit(os.path.basename(path), content, [lang], _glossary(args),
-                            tone=_tone(args), icu=args.icu,
+                            tone=_tone(args), icu=args.icu, reuse=reuse,
                             app_context=_app_context(args))
         status = client.poll(job, on_progress=None if args.quiet else _progress_printer())
         members = client.download(job)
@@ -843,11 +933,21 @@ def _translate_incremental(client, path, out_dir, langs, args):
             broken.update(todo)  # not merged — keep these keys stale-locked
             broken_by_lang.setdefault(lang, set()).update(todo)
             continue
+        if memory is not None:
+            _tm_commit(memory, tm_path, todo, {lang: translated}, sig)
+        rec = _show_receipt(client, job)
+        if rec:
+            receipts.append(rec)
         merged = inc.merge_translation(existing, translated)
         if is_arb:
             merged["@@locale"] = lang  # stamp the target locale on the written ARB
         inc.dump_json(merged, target_path)
         ok(f"{lang}: merged {len(todo)} key(s) → {target_path}")
+
+    if receipts and getattr(args, "receipt", None):
+        body = receipts[0] if len(receipts) == 1 else receipts
+        write_atomic(args.receipt, json.dumps(body, ensure_ascii=False, indent=2))
+        ok(f"Run receipt written to {args.receipt}")
 
     # Advance the lock exactly once, AFTER every language: record a source key's
     # current hash only if it is current in EVERY language processed (i.e. not in
@@ -1033,6 +1133,13 @@ def build_parser():
     t.add_argument("--no-icu", dest="icu", action="store_false", default=None,
                    help="Disable the ICU hint (overrides kaeris.json's icu)")
     t.add_argument("--quiet", "-q", action="store_true", help="Suppress progress output")
+    t.add_argument("--tm", metavar="PATH",
+                   help=f"Project translation memory file (default: {tmem.FILENAME} next to "
+                        "the source). Remembers translations by TEXT, so a renamed key, a "
+                        "string moved between files, or a fresh clone reuses them instead of "
+                        "paying again. Commit it.")
+    t.add_argument("--no-tm", action="store_true",
+                   help="Ignore and do not update the project translation memory")
     t.add_argument("--receipt", metavar="PATH",
                    help="Write a JSON record of the run (model, languages delivered, "
                         "characters charged vs reused, settings, glossary terms actually "

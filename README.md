@@ -122,6 +122,30 @@ Every `kaeris translate` prints the same line when it finishes, and raises it to
 with, and again at **95%**. Lifetime (BYOK) has no monthly volume: you pay OpenRouter for tokens
 directly.
 
+## Project translation memory
+
+`kaeris.lock` remembers a **key** and the hash of the English behind it. That is enough to
+notice an edited string and nothing else: rename `nav.save` to `toolbar.save` and the identical
+sentence is translated and charged again; the same "Save changes" in `common.json` and in
+`checkout.json` is paid for twice; a colleague who just cloned the repo re-translates what you
+already bought.
+
+`kaeris-tm.json` remembers the **text**:
+
+```
+source string + the settings it was translated under  ->  { de: …, fr: … }
+```
+
+It is written next to your source file, and you commit it. Reuse then survives renamed keys,
+strings moved between files, deleted-and-restored keys, and a fresh clone. Matching strings are
+handed to the API as already-known and are **not charged** — the same reuse path the web app
+uses.
+
+The settings are part of the key deliberately: a string translated with `--tone formal`, a
+different glossary or a different model is a different answer, so changing any of them
+retranslates rather than serving something produced under rules that no longer apply. Use
+`--no-tm` to ignore it for one run.
+
 ## What the run actually did
 
 Every `kaeris translate` ends with two lines about the run itself:
@@ -313,6 +337,8 @@ Anything not passed falls back to `kaeris.json`, then to the built-in default.
 | `--back-lang en` | language to back-translate into with `--verify` |
 | `--quiet` | no progress output |
 | `--receipt PATH` | write a JSON record of the run — counts and settings only, no strings |
+| `--tm PATH` | project translation memory file (default `kaeris-tm.json` next to the source) |
+| `--no-tm` | ignore and do not update the project translation memory |
 
 **`kaeris check`**
 
