@@ -192,3 +192,36 @@ class TestTheThresholds:
         assert K._fmt_chars(45_600) == "45k"
         assert K._fmt_chars(999) == "999"
         assert K._fmt_chars(-5) == "0"
+
+
+# ── Xcode String Catalog: one file, every language ────────────────────────────
+
+class TestTheMergedCatalogLandsInOnePlace:
+    """A .xcstrings holds every language at once, so the archive carries ONE member. Deriving
+    a language from its name would file "Localizable.xcstrings" under a language called
+    "Localizable" and write it to a directory of that name — a path no Xcode project has."""
+
+    def test_it_is_written_over_the_source_catalog(self, tmp_path):
+        src = tmp_path / "Localizable.xcstrings"
+        src.write_text('{"sourceLanguage":"en","strings":{}}')
+        written = K._write_members({"Localizable.xcstrings": b'{"merged": true}'},
+                                   str(src), None, "en")
+        assert written == [str(src)], written
+        assert src.read_bytes() == b'{"merged": true}'
+
+    def test_out_dir_is_honoured(self, tmp_path):
+        src = tmp_path / "app" / "Localizable.xcstrings"
+        src.parent.mkdir()
+        src.write_text("{}")
+        out = tmp_path / "build"
+        written = K._write_members({"Localizable.xcstrings": b'{"merged": true}'},
+                                   str(src), str(out), "en")
+        assert written == [str(out / "Localizable.xcstrings")], written
+        assert src.read_text() == "{}", "the source was overwritten despite --out"
+
+    def test_per_language_formats_are_untouched(self, tmp_path):
+        """The normal path must keep working exactly as before."""
+        src = tmp_path / "en.json"
+        src.write_text("{}")
+        written = K._write_members({"de.json": b"{}", "fr.json": b"{}"}, str(src), None, "en")
+        assert sorted(os.path.basename(p) for p in written) == ["de.json", "fr.json"]
