@@ -825,7 +825,9 @@ def _arb_meta_key(flat_key):
 
 def _current_model(client):
     """The exact model this key's tier translates with, recorded in the lock so a tier switch
-    (Free->Pro swaps DeepSeek for GPT-4o-mini) is caught as a settings change.
+    (before 01.08.2026 Free->Pro swapped the model; every tier has run the same one since,
+    but a server-side model change still has to invalidate the lock) is caught as a settings
+    change.
 
     Best-effort: an older server has no model_id and an unreachable one has nothing at all.
     Both report "" — settings_changed() treats an unknown model as "not changed", so the run
