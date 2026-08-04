@@ -121,7 +121,7 @@ def settings_signature(tone="", icu=False, keep=None, model="", app_context=""):
     The model belongs here for the same reason and more strongly: it is the single biggest
     influence on the output. It also changes on its own, without the user touching a flag —
     the tier picks it (MODEL_FREE vs MODEL_PREMIUM), so upgrading Free→Pro silently switched
-    models and left a locale that is half DeepSeek and half GPT-4o-mini while the lock still
+    models and left a locale that is half one model and half another while the lock still
     reported everything up to date. Recording it means the upgrade retranslates instead.
 
     The app context belongs here for the same reason as the tone: it is fed to the model as
