@@ -101,6 +101,52 @@ def _quota_line(info_json):
     return text, level
 
 
+def _fmt_receipt(rec):
+    """Two lines a human reads, plus the things worth interrupting them for."""
+    langs = rec.get("languages") or {}
+    chars = rec.get("characters") or {}
+    settings = rec.get("settings") or {}
+    lines = []
+    delivered, failed = langs.get("delivered") or [], langs.get("failed") or []
+    lines.append(
+        f"Run: {rec.get('model', '?')} · {rec.get('plan', '?')} · "
+        f"{len(delivered)}/{len(langs.get('requested') or [])} languages · "
+        f"{rec.get('strings', 0)} strings · {rec.get('seconds', 0)}s")
+    bits = [f"{_fmt_chars(chars.get('metered', 0))} charged"]
+    if chars.get("reused_not_charged"):
+        bits.append(f"{_fmt_chars(chars['reused_not_charged'])} reused free")
+    if chars.get("refunded"):
+        bits.append(f"{_fmt_chars(chars['refunded'])} refunded")
+    on = [k for k in ("icu", "verify") if settings.get(k)]
+    if settings.get("tone") and settings["tone"] != "neutral":
+        on.append(settings["tone"])
+    if settings.get("context"):
+        on.append("context")
+    lines.append("     " + " · ".join(bits) + (("  ·  " + ", ".join(on)) if on else ""))
+    return lines, failed
+
+
+def _show_receipt(client, job):
+    """Print what the run actually did. Best-effort, like the other after-the-fact lines: an
+    older server has no /api/receipt and an unreachable one has nothing at all."""
+    try:
+        rec = client.receipt(job)
+    except Exception:
+        return None
+    lines, failed = _fmt_receipt(rec)
+    info(lines[0])
+    print(lines[1], file=sys.stderr)
+    # A glossary term that was never in the file was never going to be honoured, and until
+    # this line nothing said so — the run simply looked clean.
+    absent = [g["term"] for g in (rec.get("glossary") or []) if not g.get("found_in_source")]
+    if absent:
+        warn(f"{len(absent)} glossary term(s) never appear in your source, so nothing kept "
+             f"them: {', '.join(absent[:5])}")
+    if failed:
+        warn(f"not delivered: {', '.join(failed)}")
+    return rec
+
+
 def _show_quota(client):
     """Print the monthly volume after a run. Best-effort by design, exactly like
     _current_model: an older server has no month_* fields and an unreachable one has nothing.
@@ -643,6 +689,10 @@ def _translate_one(client, path, langs, args):
         print(w)
     # Translation QA — placeholder loss + UI-overflow (free), plus back-translation if --verify
     _show_qa(client, job, display_out, args.verify, args.back_lang)
+    rec = _show_receipt(client, job)
+    if rec and getattr(args, "receipt", None):
+        write_atomic(args.receipt, json.dumps(rec, ensure_ascii=False, indent=2))
+        ok(f"Run receipt written to {args.receipt}")
     failed = status.get("failed_langs") or []
     if failed:
         warn(f"{len(failed)} language(s) fell back to source text (not translated): {', '.join(failed)}")
@@ -983,6 +1033,10 @@ def build_parser():
     t.add_argument("--no-icu", dest="icu", action="store_false", default=None,
                    help="Disable the ICU hint (overrides kaeris.json's icu)")
     t.add_argument("--quiet", "-q", action="store_true", help="Suppress progress output")
+    t.add_argument("--receipt", metavar="PATH",
+                   help="Write a JSON record of the run (model, languages delivered, "
+                        "characters charged vs reused, settings, glossary terms actually "
+                        "found) — counts only, no strings, safe to commit.")
     t.set_defaults(func=cmd_translate)
 
     ls = sub.add_parser("languages", help="List supported target languages")
