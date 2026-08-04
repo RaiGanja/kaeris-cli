@@ -48,17 +48,32 @@ jobs:
       - name: No test may be silently skipped
         run: |
           # A skip normally means a dependency is missing and tests that exist are not running.
-          # Exactly ONE skip is legitimate here: the detector-parity test compares this
-          # package's copy of the detectors against backend/translator.py, which lives in a
-          # different (private) repository and cannot exist in this checkout. That comparison
-          # is not dropped — it runs in the backend's own CI, which clones THIS repo to get
-          # both halves side by side. Anything else that skips fails the build.
+          # Two skips are structurally unavoidable in THIS checkout, and only these two:
+          #
+          #   test_detector_parity      — compares this package's copy of the detectors against
+          #                               backend/translator.py, which lives in a different
+          #                               (private) repository. Not dropped: the backend's own
+          #                               CI clones this repo and runs the comparison there.
+          #   test_dist_matches_the_tree — guards `twine upload dist/*` against publishing a
+          #                               stale wheel. It has meaning only where a wheel has
+          #                               been built, i.e. on the machine doing the release.
+          #                               CI has no dist/ and must not build one.
+          #
+          # That second one is why this job sat red from 03.08 to 04.08: the test was added
+          # with the guard still demanding exactly one skip, so every push failed and the
+          # failure emails became indistinguishable from noise. Anything NOT on this list
+          # still fails the build — that is the whole point of the check.
           if grep -qE '[0-9]+ skipped' pytest.txt; then
+            unexpected=$(grep -E '^SKIPPED' pytest.txt \
+              | grep -vE 'test_detector_parity|test_dist_matches_the_tree' || true)
+            if [ -n "$unexpected" ]; then
+              echo "::error::unexpected skip — a dependency is missing and real tests are not running"
+              echo "$unexpected"
+              exit 1
+            fi
             grep -q 'test_detector_parity' pytest.txt || {
-              echo "::error::tests were skipped — see the '-rs' list above"; exit 1; }
-            test "$(grep -cE '^SKIPPED' pytest.txt)" = "1" || {
-              echo "::error::more than the one expected skip"; exit 1; }
-            echo "Only the known parity skip (runs in the backend CI) — ok"
+              echo "::error::the detector-parity skip is gone — did the test stop existing?"; exit 1; }
+            echo "Only the two structurally impossible skips — ok"
           fi
 
   # What people actually install
