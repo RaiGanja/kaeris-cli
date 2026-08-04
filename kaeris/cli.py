@@ -941,7 +941,7 @@ def build_parser():
                     "built-in default. Run `kaeris init` to create one.",
     )
     t.add_argument("files", nargs="*",
-                   help="Source file(s) (.json/.yml/.strings/.xcstrings/.po/.arb/.xml/.csv/.xliff/.properties/.resx/.ftl) — accepts several "
+                   help="Source file(s) (.json/.yml/.strings/.xcstrings/.md/.mdx/.po/.arb/.xml/.csv/.xliff/.properties/.resx/.ftl) — accepts several "
                         "paths and/or glob patterns (e.g. 'locales/en/*.json') for multi-namespace "
                         "projects; optional if 'source' is set in kaeris.json (string or list)")
     t.add_argument("--langs", "-l",

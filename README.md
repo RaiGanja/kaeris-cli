@@ -6,7 +6,7 @@ AI localization from your terminal. Translate your app's strings files into **46
 locally or in CI/CD. Format-aware, placeholder-safe, and **incremental** (only new keys).
 
 - **Zero dependencies** — pure Python stdlib, installs in a second
-- **12 formats** — JSON, YAML, `.strings`, Xcode String Catalog `.xcstrings`, `.po`, ARB, Android XML, CSV (Godot/Unity), XLIFF 1.2, Java `.properties`, .NET `.resx`, Mozilla Fluent `.ftl`
+- **13 formats** — JSON, YAML, `.strings`, Xcode String Catalog `.xcstrings`, Markdown/MDX, `.po`, ARB, Android XML, CSV (Godot/Unity), XLIFF 1.2, Java `.properties`, .NET `.resx`, Mozilla Fluent `.ftl`
 - **Incremental** — `--only-new` translates just the keys you added, merges the rest
 - **Translation QA** — flags dropped placeholders & UI-overflow risk; `--verify` back-translates so you can check the meaning
 - **`kaeris check`** — an i18n firewall: fails CI if a locale is untranslated or placeholder-broken, no API call
@@ -67,6 +67,17 @@ kaeris languages
 
 Output files are written next to the source (or into `--out`), named by language:
 `es.json`, `fr.json`, `ja.json` (or `values-es/strings.xml` for Android, etc.).
+
+**Markdown and MDX** are translated as documents, not as key/value files: `guide.md` becomes
+`de.md`, `ja.md` and so on. Prose is translated; everything that is not prose is not. Fenced and
+indented code blocks, URLs, inline code, HTML and JSX tags, MDX `import`/`export` lines, heading
+anchors (`{#install}`) and front-matter configuration (`slug`, `date`, `tags`) come back byte
+for byte — only front-matter fields a reader actually sees (`title`, `description`, `summary`,
+…) are translated. Link *text* is translated, link *targets* are not.
+
+One limitation, said out loud: text inside a multi-line JSX component is preserved rather than
+translated. Guessing at the boundaries of arbitrary JSX with regexes is how you ship a broken
+page.
 
 **Xcode String Catalogs are the exception**, because the format is: one `.xcstrings` file holds
 every language, so there is one file to write, not one per language. `kaeris translate
