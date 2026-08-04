@@ -54,6 +54,10 @@ jobs:
           #                               backend/translator.py, which lives in a different
           #                               (private) repository. Not dropped: the backend's own
           #                               CI clones this repo and runs the comparison there.
+          #   test_check_xcstrings       — the parity half of it compares this package's catalog
+          #                               parser against the backend's, which lives in the
+          #                               private repo. Runs in the backend's CI, same as the
+          #                               detector parity above.
           #   test_dist_matches_the_tree — guards `twine upload dist/*` against publishing a
           #                               stale wheel. It has meaning only where a wheel has
           #                               been built, i.e. on the machine doing the release.
@@ -65,7 +69,7 @@ jobs:
           # still fails the build — that is the whole point of the check.
           if grep -qE '[0-9]+ skipped' pytest.txt; then
             unexpected=$(grep -E '^SKIPPED' pytest.txt \
-              | grep -vE 'test_detector_parity|test_dist_matches_the_tree' || true)
+              | grep -vE 'test_detector_parity|test_dist_matches_the_tree|test_check_xcstrings' || true)
             if [ -n "$unexpected" ]; then
               echo "::error::unexpected skip — a dependency is missing and real tests are not running"
               echo "$unexpected"
