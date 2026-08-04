@@ -306,7 +306,7 @@ Change detection is powered by `kaeris.lock` — a small JSON file written next 
 file after every incremental run. It records a SHA-256 of each source string **plus the
 settings that produced it**: your tone, your glossary, your app context, and the model. Change any of them and
 the whole locale is re-translated, so it never ends up a mix of two tones or two models. Every
-tier runs the same model (GPT-4o-mini), so a plan change alone never forces a re-translation —
+tier runs the same model (Gemini 2.5 Flash-Lite), so a plan change alone never forces a re-translation —
 the lock records the model anyway, so the day we change it, you find out from a full re-run
 rather than from a locale quietly built by two models. It's what lets
 `--only-new` notice an edited key even though it's still present in the target; without it, a
