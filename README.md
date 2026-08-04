@@ -6,7 +6,7 @@ AI localization from your terminal. Translate your app's strings files into **46
 locally or in CI/CD. Format-aware, placeholder-safe, and **incremental** (only new keys).
 
 - **Zero dependencies** — pure Python stdlib, installs in a second
-- **11 formats** — JSON, YAML, `.strings`, `.po`, ARB, Android XML, CSV (Godot/Unity), XLIFF 1.2, Java `.properties`, .NET `.resx`, Mozilla Fluent `.ftl`
+- **12 formats** — JSON, YAML, `.strings`, Xcode String Catalog `.xcstrings`, `.po`, ARB, Android XML, CSV (Godot/Unity), XLIFF 1.2, Java `.properties`, .NET `.resx`, Mozilla Fluent `.ftl`
 - **Incremental** — `--only-new` translates just the keys you added, merges the rest
 - **Translation QA** — flags dropped placeholders & UI-overflow risk; `--verify` back-translates so you can check the meaning
 - **`kaeris check`** — an i18n firewall: fails CI if a locale is untranslated or placeholder-broken, no API call
@@ -67,6 +67,14 @@ kaeris languages
 
 Output files are written next to the source (or into `--out`), named by language:
 `es.json`, `fr.json`, `ja.json` (or `values-es/strings.xml` for Android, etc.).
+
+**Xcode String Catalogs are the exception**, because the format is: one `.xcstrings` file holds
+every language, so there is one file to write, not one per language. `kaeris translate
+Localizable.xcstrings --langs de,fr,ja` updates that catalog in place — your comments, your
+extraction states, languages already in the file and anything marked `shouldTranslate: false`
+are carried through untouched. Plurals are expanded to the categories each language actually
+needs: an English `one`/`other` becomes `one`/`few`/`many`/`other` in Russian and all six forms
+in Arabic, with `%lld` left exactly where it was.
 
 ## Authentication & tiers
 

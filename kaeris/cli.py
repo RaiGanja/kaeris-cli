@@ -839,11 +839,29 @@ def write_atomic(path, data, *, binary=False):
         raise
 
 
+# Formats where ONE file carries every language, so the archive holds a single merged member
+# rather than one per language. Deriving a language from such a member's name would produce
+# nonsense: "Localizable.xcstrings" would be filed under a language called "Localizable".
+_MERGED_MEMBER_EXTS = (".xcstrings",)
+
+
 def _write_members(members, src_path, out_dir, source_lang):
     """Write each downloaded member (named `<lang><ext>`) to its namespace-mirrored
     target path (see _target_path) instead of a flat out_dir."""
     written = []
     for name, data in members.items():
+        if name.lower().endswith(_MERGED_MEMBER_EXTS):
+            # An Xcode String Catalog holds every language at once, so the result belongs
+            # where the source is — that is the file Xcode reads and the developer keeps
+            # editing. Everything we did not translate (comments, other languages, entries
+            # marked shouldTranslate:false) was carried through, so this is an update of
+            # their catalog, not a replacement of it.
+            dest = (os.path.join(out_dir, os.path.basename(src_path)) if out_dir
+                    else src_path)
+            os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+            write_atomic(dest, data, binary=True)
+            written.append(dest)
+            continue
         lang = os.path.splitext(os.path.basename(name))[0]
         dest = _target_path(src_path, lang, out_dir, source_lang)
         os.makedirs(os.path.dirname(dest) or out_dir or ".", exist_ok=True)
@@ -874,7 +892,7 @@ def build_parser():
                     "built-in default. Run `kaeris init` to create one.",
     )
     t.add_argument("files", nargs="*",
-                   help="Source file(s) (.json/.yml/.strings/.po/.arb/.xml/.csv/.xliff/.properties/.resx/.ftl) — accepts several "
+                   help="Source file(s) (.json/.yml/.strings/.xcstrings/.po/.arb/.xml/.csv/.xliff/.properties/.resx/.ftl) — accepts several "
                         "paths and/or glob patterns (e.g. 'locales/en/*.json') for multi-namespace "
                         "projects; optional if 'source' is set in kaeris.json (string or list)")
     t.add_argument("--langs", "-l",
