@@ -79,6 +79,27 @@ class TestTheQuotaCommand:
         assert "kaeris.dev/developer" in out, (
             f"a reader with no key is told nothing and given nowhere to go: {out}")
 
+    def test_the_tier_name_the_live_server_actually_returns(self, fake_server, capsys):
+        """Caught against production, not here: with no key the server answers tier
+        "anonymous", not "none". The first version branched on the tier name and so told
+        someone with no key at all about Lifetime/BYOK and their own OpenRouter tokens."""
+        fake_server["info"] = {"tier": "anonymous", "char_limit": 10000}
+        code, out = _run(["quota"], capsys)
+        assert code == 0, out
+        assert "kaeris.dev/developer" in out, (
+            f"an anonymous reader was not pointed at a free key: {out}")
+        assert "OpenRouter" not in out, (
+            f"someone with no key was told about BYOK tokens: {out}")
+
+    def test_an_unknown_future_tier_does_not_invent_an_explanation(self, fake_server, capsys):
+        """A tier this CLI version has never heard of must not be described as anything in
+        particular — a pinned CLI outlives the plan list."""
+        fake_server["info"] = {"tier": "enterprise2027", "char_limit": 10000}
+        code, out = _run(["--key", "kaerisp_x", "quota"], capsys)
+        assert code == 0, out
+        assert "OpenRouter" not in out, f"guessed that an unknown plan is BYOK: {out}"
+        assert "pricing" in out, f"nowhere to go from an unknown plan: {out}"
+
     def test_byok_is_told_it_has_no_cap_not_shown_a_zero(self, fake_server, capsys):
         """Lifetime runs on the customer's own OpenRouter key and has no monthly volume.
         Printing '0 left' would read as an exhausted plan."""

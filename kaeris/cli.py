@@ -128,13 +128,19 @@ def cmd_quota(args):
         return 2
     line = _quota_line(data)
     if not line:
-        tier = data.get("tier") or "none"
-        if tier in ("none", "free") and not (args.key or os.environ.get("KAERIS_API_KEY")):
+        # Branch on whether a key was SUPPLIED, not on the tier name. The live server answers
+        # tier "anonymous" with no key — a name this code did not expect — and the fallback
+        # then told someone with no key at all about Lifetime/BYOK. Caught only by running it
+        # against production; a stub returning "none" had looked fine.
+        if not (args.key or os.environ.get("KAERIS_API_KEY")):
             info("No API key — the keyless demo has no monthly volume. "
                  "Get a free key at kaeris.dev/developer")
+        elif (data.get("tier") or "") == "byok":
+            info("Lifetime (BYOK) has no monthly volume cap — you pay OpenRouter directly "
+                 "for tokens. The per-file character limit still applies.")
         else:
-            info(f"Plan '{tier}' has no monthly volume cap "
-                 "(Lifetime/BYOK runs on your own OpenRouter key).")
+            info(f"Plan '{data.get('tier') or 'unknown'}' reports no monthly volume. "
+                 "See kaeris.dev/pricing.html")
         return 0
     text, level = line
     (warn if level in ("warn", "crit") else ok)(text)
