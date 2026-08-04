@@ -122,6 +122,24 @@ Every `kaeris translate` prints the same line when it finishes, and raises it to
 with, and again at **95%**. Lifetime (BYOK) has no monthly volume: you pay OpenRouter for tokens
 directly.
 
+## What the run actually did
+
+Every `kaeris translate` ends with two lines about the run itself:
+
+```
+→ Run: openai/gpt-4o-mini · premium · 3/3 languages · 412 strings · 18.4s
+     124k charged · 38k reused free  ·  icu, verify, formal
+```
+
+`--receipt run.json` writes the same thing as JSON: model, plan, languages requested against
+languages actually delivered, characters charged against characters reused for free, the
+settings that were applied, and — the useful one — **which of your glossary terms were really
+present in the source**. A term that was never in the file was never going to be kept, and
+nothing used to say so; the run just looked clean.
+
+It carries counts and your own settings, never your strings, so it is safe to commit next to
+the translations and read in a diff.
+
 ## `kaeris check` — the i18n firewall
 
 A **local, static, no-API** check: compares your source file against each target locale and
@@ -294,6 +312,7 @@ Anything not passed falls back to `kaeris.json`, then to the built-in default.
 | `--verify` | back-translate and write `verify.json` so you can check the meaning |
 | `--back-lang en` | language to back-translate into with `--verify` |
 | `--quiet` | no progress output |
+| `--receipt PATH` | write a JSON record of the run — counts and settings only, no strings |
 
 **`kaeris check`**
 

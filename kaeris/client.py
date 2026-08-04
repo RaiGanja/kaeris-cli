@@ -252,6 +252,12 @@ class KaerisClient:
             time.sleep(interval)
         raise KaerisError("Timed out waiting for translation")
 
+    def receipt(self, job_id):
+        """What the server says actually happened on a run: model, plan, languages delivered
+        and failed, characters metered against characters reused, the settings applied, which
+        glossary terms were really in the source, what QA found. Counts only — no strings."""
+        return json.loads(self._get(f"/api/receipt/{job_id}").decode())
+
     def preview(self, job_id):
         """Fetch the translation QA report: keys _warnings (lost placeholders per lang),
         _qa (UI-overflow risks per lang) and _back (back-translations, if verify was on)."""
