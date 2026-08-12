@@ -37,7 +37,15 @@ _PH_RE = re.compile(
 # variable name — the ARGUMENT of the block, which is the real placeholder.
 _ICU_SELECTOR_VAR_RE = re.compile(r"\{\s*([\w\d_]+)\s*,\s*(?:plural|select|selectordinal)\s*,")
 
-def _placeholder_list(text: str) -> list[str]:
+# ICU blocks nest, and both readers below walk that nesting recursively. A client file can
+# nest them a thousand deep — that is 21 KB of text and a blown Python stack: `kaeris check`
+# answered with a RecursionError traceback instead of a verdict (12.08.2026). Real messages
+# nest two or three levels; past forty we stop descending. Missing a placeholder buried
+# forty arms deep costs a rare warning, a traceback costs the whole run.
+_MAX_ICU_DEPTH = 40
+
+
+def _placeholder_list(text: str, _depth: int = 0) -> list[str]:
     """Placeholders as ICU semantics define them, not as a flat regex sees them.
 
     An ICU block is STRUCTURE, not text: in {count, plural, one {# file} other {# files}}
@@ -68,18 +76,21 @@ def _placeholder_list(text: str) -> list[str]:
         if var:
             out.append("{" + var.group(1) + "}")     # the argument IS the placeholder
         body = seg[head.end():-1]                    # arms only, after "{name, type,"
-        for as_, ae in _brace_spans(body):
-            out.extend(_placeholder_list(body[as_ + 1:ae - 1]))
+        if _depth < _MAX_ICU_DEPTH:
+            for as_, ae in _brace_spans(body):
+                out.extend(_placeholder_list(body[as_ + 1:ae - 1], _depth + 1))
     rest.append(text[pos:])
     # Join with a space so removing a block can't fuse two neighbours into a false match.
     out.extend(_PH_RE.findall(" ".join(rest)))
     return out
 
-def _icu_visible_text(text: str) -> str:
+def _icu_visible_text(text: str, _depth: int = 0) -> str:
     """The text a user actually SEES: ICU markup replaced by the arm that renders longest
     (the worst case for layout), nested blocks resolved recursively. `#` is left in place —
     it stands for the number, which is 1-3 characters in practice. Non-ICU text is returned
     untouched, so callers that never meet a plural behave exactly as before."""
+    if _depth >= _MAX_ICU_DEPTH:
+        return text             # см. _MAX_ICU_DEPTH: глубже мы читаем остаток как текст
     out: list[str] = []
     pos = 0
     for bs, be in _brace_spans(text):
@@ -90,7 +101,7 @@ def _icu_visible_text(text: str) -> str:
         out.append(text[pos:bs])
         pos = be
         body = seg[head.end():-1]
-        arms = [_icu_visible_text(body[s + 1:e - 1]) for s, e in _brace_spans(body)]
+        arms = [_icu_visible_text(body[s + 1:e - 1], _depth + 1) for s, e in _brace_spans(body)]
         out.append(max(arms, key=len) if arms else "")
     out.append(text[pos:])
     return "".join(out)
@@ -101,7 +112,7 @@ def _find_placeholders(text: str) -> set[str]:
 def _lost_placeholders(original: str, translated: str) -> list[str]:
     return sorted(_find_placeholders(original) - _find_placeholders(translated))
 
-def _placeholder_arity(text: str) -> tuple[collections.Counter, collections.Counter]:
+def _placeholder_arity(text: str, _depth: int = 0) -> tuple[collections.Counter, collections.Counter]:
     """How many times a placeholder can appear in the RENDERED string — (most, fewest).
 
     ICU arms are alternatives: exactly one is chosen at runtime, so a placeholder used once
@@ -133,9 +144,10 @@ def _placeholder_arity(text: str) -> tuple[collections.Counter, collections.Coun
             outside.append("{" + var.group(1) + "}")   # the argument renders once
         body = seg[head.end():-1]
         per_arm = []
-        for as_, ae in _brace_spans(body):
-            mx, mn = _placeholder_arity(body[as_ + 1:ae - 1])
-            per_arm.append((mx, mn))
+        if _depth < _MAX_ICU_DEPTH:
+            for as_, ae in _brace_spans(body):
+                mx, mn = _placeholder_arity(body[as_ + 1:ae - 1], _depth + 1)
+                per_arm.append((mx, mn))
         if per_arm:
             keys = set().union(*[set(mx) for mx, _ in per_arm])
             for k in keys:
@@ -411,6 +423,31 @@ def _icu_blocks(text: str) -> list[tuple[str, str]]:
             out.append((m.group(1), seg))
     return out
 
+def _arm_label(body: str, pos: int) -> str | None:
+    """The `one` / `other` / `=0` label sitting immediately left of an arm's `{`.
+
+    Reads BACKWARDS from the brace instead of `re.search(r"(=\\d+|[\\w]+)\\s*$", body[:pos])`,
+    which re-scanned the whole prefix for every arm and made one ICU block quadratic in its
+    own length: `kaeris check` spent 8.2 s on a single 41 KB block and 0.12 s on the same
+    volume of prose (12.08.2026).
+
+    Equivalent to that pattern, not merely similar: `\\w` is exactly str.isalnum() plus '_',
+    `\\d` is exactly str.isdecimal(), and the `\\s*$` anchor means only the tail could ever
+    match. Checked against the old pattern on 200 000 random prefixes — no divergence."""
+    i = pos
+    while i > 0 and body[i - 1].isspace():
+        i -= 1
+    j = i
+    while j > 0 and (body[j - 1].isalnum() or body[j - 1] == "_"):
+        j -= 1
+    tok = body[j:i]
+    if not tok:
+        return None
+    if j > 0 and body[j - 1] == "=" and tok.isdecimal():
+        return "=" + tok
+    return tok
+
+
 def _icu_arms(seg: str) -> tuple[str, set, set] | None:
     """(type, category_keywords, exact_matches) for one ICU block. Categories are CLDR
     keywords (one/few/many/other/…) or select cases; exacts are literal =N branches."""
@@ -420,9 +457,8 @@ def _icu_arms(seg: str) -> tuple[str, set, set] | None:
     body = seg[m.end():-1]                # arms only: after "{name, type," up to the final "}"
     keywords, exacts = set(), set()
     for s, e in _brace_spans(body):
-        km = re.search(r"(=\d+|[\w]+)\s*$", body[:s])   # token right before this arm's {…}
-        if km:
-            tok = km.group(1)
+        tok = _arm_label(body, s)          # token right before this arm's {…}
+        if tok:
             (exacts if tok.startswith("=") else keywords).add(tok)
     return m.group(1), keywords, exacts
 
@@ -700,14 +736,18 @@ _CURRENCY_NEAR_NUMBER = [
 def _currencies_in(text: str) -> set:
     """Which currencies this string quotes a price in. Longest token wins, so R$ never
     registers as $."""
-    found, seen = set(), []
+    text = text or ""
+    found = set()
+    # Claimed positions as a flat map, not a growing list of spans. The list version asked
+    # `any(a <= start < b for a, b in seen)` for EVERY match, so a string full of prices cost
+    # O(matches²): 40 KB took 0.73 s and 80 KB took 2.76 s, while the same volume of prose
+    # took 0.07 s (12.08.2026). Same verdict, one byte per character.
+    claimed = bytearray(len(text))
     for rx, cur in _CURRENCY_NEAR_NUMBER:
-        for m in rx.finditer(text or ""):
-            span = (m.start(), m.end())
-            # a longer token already claimed this position (R$ before $)
-            if any(a <= span[0] < b for a, b in seen):
-                continue
-            seen.append(span)
+        for m in rx.finditer(text):
+            if claimed[m.start()]:
+                continue            # a longer token already claimed this position (R$ before $)
+            claimed[m.start():m.end()] = b"\x01" * (m.end() - m.start())
             found.add(cur)
     return found
 
