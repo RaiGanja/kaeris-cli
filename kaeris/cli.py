@@ -11,6 +11,7 @@ from . import __version__
 from .client import KaerisClient, KaerisError, DEFAULT_API
 from .encoding import read_text, UnknownEncoding
 from . import incremental as inc
+from .incremental import TooDeep
 from . import check as chk
 from . import xcstrings as xc
 from . import tm as tmem
@@ -1221,6 +1222,12 @@ def main(argv=None):
     try:
         return args.func(args)
     except KaerisError as e:
+        err(str(e))
+        return 2
+    except TooDeep as e:
+        # Слишком глубокий файл раньше печатал в чужой CI питоновский трейсбек
+        # (RecursionError на 19 КБ) — а трейсбек в логе сборки читается как «ваша локаль
+        # сломана». Тот же код выхода 2, что у остальных отказов, и текст для человека.
         err(str(e))
         return 2
     except KeyboardInterrupt:
