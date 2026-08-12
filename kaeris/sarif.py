@@ -19,6 +19,8 @@ import json
 import os
 import re
 
+from .encoding import read_text
+
 SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"
 
 # Each finding carries a ruleId so GitHub can group them and a developer can mute a class of
@@ -57,11 +59,12 @@ def line_of_key(path: str, key: str) -> int:
     leaf = key.split(".")[-1]
     pattern = re.compile(r'^\s*"' + re.escape(leaf) + r'"\s*:')
     try:
-        with open(path, encoding="utf-8") as f:
-            for n, line in enumerate(f, 1):
-                if pattern.match(line):
-                    return n
-    except OSError:
+        for n, line in enumerate(read_text(path).splitlines(), 1):
+            if pattern.match(line):
+                return n
+    except (OSError, ValueError):
+        # Номер строки — украшение отчёта: файл в неизвестной кодировке уже отвергнут выше,
+        # а здесь молчаливая единица лучше падения на пути к SARIF.
         return 1
     return 1
 

@@ -9,6 +9,7 @@ import sys
 
 from . import __version__
 from .client import KaerisClient, KaerisError, DEFAULT_API
+from .encoding import read_text, UnknownEncoding
 from . import incremental as inc
 from . import check as chk
 from . import xcstrings as xc
@@ -251,14 +252,20 @@ def _load_config(args):
     if not os.path.isfile(path):
         raise KaerisError(f"Config file not found: {path}")
     try:
-        with open(path, encoding="utf-8") as f:
-            raw = json.load(f)
+        raw = json.loads(read_text(path))
     except json.JSONDecodeError as e:
         raise KaerisError(f"Invalid JSON in {path}: {e}")
     if not isinstance(raw, dict):
         raise KaerisError(f"Invalid config in {path}: expected a JSON object")
     cfg = {k: v for k, v in raw.items() if not k.startswith("//") and not k.startswith("_")}
     return cfg, path
+
+
+def _hint(e):
+    """Кодировка — не синтаксис. Без этой подсказки человек идёт искать сломанную скобку в
+    файле, который цел: он просто сохранён не в UTF-8, и чинится это одной командой."""
+    return " — save it as UTF-8 (or UTF-16 with a byte-order mark)" if isinstance(
+        e, UnknownEncoding) else ""
 
 
 def _resolve_source(path):
@@ -451,7 +458,7 @@ def cmd_check(args):
         try:
             cat_source_lang, catalog = xc.load(path)
         except (OSError, ValueError) as e:
-            err(f"Could not read String Catalog {path}: {e}")
+            err(f"Could not read String Catalog {path}: {e}{_hint(e)}")
             return 2
         source_lang = config.get("source_lang") or cat_source_lang
         source_obj = catalog.get(source_lang) or {}
@@ -462,7 +469,7 @@ def cmd_check(args):
         try:
             source_obj = inc.load_json(path)
         except (OSError, ValueError) as e:
-            err(f"Could not read source file {path}: {e}")
+            err(f"Could not read source file {path}: {e}{_hint(e)}")
             return 2
         if not isinstance(source_obj, dict):
             err(f"Invalid source file {path}: expected a JSON object")
@@ -481,7 +488,7 @@ def cmd_check(args):
         try:
             obj = inc.load_json(target_path)
         except (OSError, ValueError) as e:
-            warn(f"{lang}: could not parse {target_path}: {e} — treating as missing")
+            warn(f"{lang}: could not parse {target_path}: {e}{_hint(e)} — treating as missing")
             return None
         if not isinstance(obj, dict):
             warn(f"{lang}: {target_path} is not a JSON object — treating as missing")
