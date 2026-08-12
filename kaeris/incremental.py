@@ -17,27 +17,49 @@ from .encoding import read_text
 import os
 
 
-def flatten(obj, prefix=""):
+# Предел вложенности — копия серверного MAX_NEST_DEPTH (backend/translator.py). Расхождение
+# стережёт паритет-тест: канал, у которого предел свой, обещает клиенту не то, что сделает
+# сервис. Без предела эти две функции просто уходили в рекурсию — `kaeris check` на файле в
+# 19 КБ печатал в чужой CI питоновский трейсбек, а MCP-сервер отдавал его же в Claude Desktop
+# (замер 12.08.2026, пункт 8 плана безопасности).
+MAX_NEST_DEPTH = 50
+
+
+class TooDeep(ValueError):
+    """Файл вложен глубже, чем обрабатывает сервис. Текст написан сразу для человека."""
+
+
+def _too_deep(key, depth):
+    return TooDeep(
+        f'"{key[:80]}" is nested {depth} levels deep — deeper than the {MAX_NEST_DEPTH} '
+        f"levels KAERIS handles. Flatten that part of the file (or split it) and try again.")
+
+
+def flatten(obj, prefix="", _depth=1):
     """Flatten nested dict to dotted keys; only string leaves are returned
     (these are the translatable keys used for delta detection)."""
     out = {}
     for k, v in obj.items():
         key = f"{prefix}.{k}" if prefix else k
         if isinstance(v, dict):
-            out.update(flatten(v, key))
+            if _depth >= MAX_NEST_DEPTH:
+                raise _too_deep(key, _depth + 1)
+            out.update(flatten(v, key, _depth + 1))
         elif isinstance(v, str):
             out[key] = v
     return out
 
 
-def flatten_all(obj, prefix=""):
+def flatten_all(obj, prefix="", _depth=1):
     """Flatten keeping every scalar leaf (strings, numbers, booleans, null) —
     used for merging so non-string values survive round-trips."""
     out = {}
     for k, v in obj.items():
         key = f"{prefix}.{k}" if prefix else k
         if isinstance(v, dict):
-            out.update(flatten_all(v, key))
+            if _depth >= MAX_NEST_DEPTH:
+                raise _too_deep(key, _depth + 1)
+            out.update(flatten_all(v, key, _depth + 1))
         else:
             out[key] = v
     return out
