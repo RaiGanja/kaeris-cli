@@ -54,6 +54,10 @@ jobs:
           #                               backend/translator.py, which lives in a different
           #                               (private) repository. Not dropped: the backend's own
           #                               CI clones this repo and runs the comparison there.
+          #   test_encoding_parity       — same story as detector parity: сравнивает наши правила
+          #                               кодировок с backend/encoding-правилами из другого
+          #                               репозитория. Бэкендовский CI гоняет то же сравнение
+          #                               у себя, поэтому здесь пропуск структурный, а не потеря.
           #   test_check_xcstrings       — the parity half of it compares this package's catalog
           #                               parser against the backend's, which lives in the
           #                               private repo. Runs in the backend's CI, same as the
@@ -69,7 +73,7 @@ jobs:
           # still fails the build — that is the whole point of the check.
           if grep -qE '[0-9]+ skipped' pytest.txt; then
             unexpected=$(grep -E '^SKIPPED' pytest.txt \
-              | grep -vE 'test_detector_parity|test_dist_matches_the_tree|test_check_xcstrings' || true)
+              | grep -vE 'test_detector_parity|test_dist_matches_the_tree|test_check_xcstrings|test_encoding_parity' || true)
             if [ -n "$unexpected" ]; then
               echo "::error::unexpected skip — a dependency is missing and real tests are not running"
               echo "$unexpected"
