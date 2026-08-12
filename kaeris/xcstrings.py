@@ -12,6 +12,8 @@ lying. tests/test_xcstrings_parity.py compares the two on a shared corpus.
 Zero dependencies, like the rest of this package.
 """
 import json
+
+from .encoding import read_text
 import re
 
 _XC_OPEN, _XC_CLOSE = "⟦", "⟧"          # ⟦ ⟧ — marks a synthetic sub-key
@@ -79,8 +81,7 @@ def load(path):
     The source language always appears, even for keys with no localization at all: Xcode's
     convention is that such a key IS its own source string, and treating those as absent would
     report a freshly-extracted project as entirely untranslated."""
-    with open(path, encoding="utf-8") as f:
-        doc = json.load(f)
+    doc = json.loads(read_text(path))   # Xcode пишет каталоги и в UTF-16
     if not isinstance(doc, dict) or not isinstance(doc.get("strings"), dict):
         raise ValueError("not a String Catalog: no 'strings' object")
     src_lang = doc.get("sourceLanguage") or "en"

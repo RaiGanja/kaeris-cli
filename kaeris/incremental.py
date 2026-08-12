@@ -12,6 +12,8 @@ the target) — see changed_or_missing_keys().
 
 import hashlib
 import json
+
+from .encoding import read_text
 import os
 
 
@@ -216,8 +218,7 @@ def load_lock(path):
     if not path or not os.path.isfile(path):
         return {}
     try:
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
+        data = json.loads(read_text(path))
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
@@ -254,8 +255,9 @@ def is_flat_dict(existing_obj, translated_obj):
 
 
 def load_json(path):
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    # Кодировка определяется, а не предполагается: BOM от Visual Studio и UTF-16 от Xcode —
+    # это обычные файлы локализации, а не порча (kaeris/encoding.py).
+    return json.loads(read_text(path))
 
 
 def dump_json(obj, path):
