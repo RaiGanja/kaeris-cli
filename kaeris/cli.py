@@ -105,16 +105,25 @@ def _quota_line(info_json):
 
 
 def _fmt_receipt(rec):
-    """Two lines a human reads, plus the things worth interrupting them for."""
+    """Two lines a human reads, plus the things worth interrupting them for.
+
+    The plan and the spend come back only to the job's owner (the server splits the receipt
+    by edit_token). When they are absent — reading a shared job, or an older client that did
+    not keep the token — say so. Printing "0 charged" for a number we were not given is a
+    lie in the one place a customer checks what a run cost them."""
     langs = rec.get("languages") or {}
     chars = rec.get("characters") or {}
     settings = rec.get("settings") or {}
+    mine = "characters" in rec
     lines = []
     delivered, failed = langs.get("delivered") or [], langs.get("failed") or []
     lines.append(
-        f"Run: {rec.get('model', '?')} · {rec.get('plan', '?')} · "
+        f"Run: {rec.get('model', '?')} · {rec.get('plan') or 'plan hidden'} · "
         f"{len(delivered)}/{len(langs.get('requested') or [])} languages · "
         f"{rec.get('strings', 0)} strings · {rec.get('seconds', 0)}s")
+    if not mine:
+        lines.append("     spend and settings are the job owner's — not shown here")
+        return lines, failed
     bits = [f"{_fmt_chars(chars.get('metered', 0))} charged"]
     if chars.get("reused_not_charged"):
         bits.append(f"{_fmt_chars(chars['reused_not_charged'])} reused free")

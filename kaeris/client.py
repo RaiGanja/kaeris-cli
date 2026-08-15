@@ -70,6 +70,8 @@ class KaerisClient:
         self.api_key = api_key
         self.openrouter_key = openrouter_key
         self.timeout = timeout
+        # Set by submit(): ownership proof for the job this client just started.
+        self.last_edit_token = ""
 
     # ── low-level ────────────────────────────────────────────────────────────
     def _headers(self, extra=None):
@@ -82,8 +84,9 @@ class KaerisClient:
             h.update(extra)
         return h
 
-    def _get(self, path):
-        req = urllib.request.Request(self.api_url + path, headers=self._headers())
+    def _get(self, path, extra_headers=None):
+        req = urllib.request.Request(self.api_url + path,
+                                     headers=self._headers(extra_headers))
         try:
             with _urlopen(req, timeout=self.timeout) as r:
                 return r.read()
@@ -205,6 +208,11 @@ class KaerisClient:
         job_id = data.get("job_id")
         if not job_id:
             raise KaerisError(f"No job_id in response: {data}")
+        # Proof that WE are the ones who started this job. The server hands it out once, in
+        # this response, and asks for it back on the owner-only half of the receipt (plan,
+        # spend, app context, glossary). Dropping it on the floor — which is what this client
+        # used to do — turned the person who paid for the run into a stranger to it.
+        self.last_edit_token = data.get("edit_token") or ""
         return job_id
 
     def parse(self, filename, content):
@@ -252,11 +260,18 @@ class KaerisClient:
             time.sleep(interval)
         raise KaerisError("Timed out waiting for translation")
 
-    def receipt(self, job_id):
+    def receipt(self, job_id, edit_token=None):
         """What the server says actually happened on a run: model, plan, languages delivered
         and failed, characters metered against characters reused, the settings applied, which
-        glossary terms were really in the source, what QA found. Counts only — no strings."""
-        return json.loads(self._get(f"/api/receipt/{job_id}").decode())
+        glossary terms were really in the source, what QA found. Counts only — no strings.
+
+        The plan, the spend, the app context and the glossary belong to whoever started the
+        job, so they come back only when we present its edit_token (kept from submit()).
+        Without it the server still answers — with the run's public half — because the same
+        endpoint backs the read-only share link."""
+        token = edit_token if edit_token is not None else getattr(self, "last_edit_token", "")
+        headers = {"X-Job-Token": token} if token else None
+        return json.loads(self._get(f"/api/receipt/{job_id}", headers).decode())
 
     def preview(self, job_id):
         """Fetch the translation QA report: keys _warnings (lost placeholders per lang),
