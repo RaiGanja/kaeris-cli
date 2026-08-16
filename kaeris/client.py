@@ -17,6 +17,20 @@ class KaerisError(Exception):
     """Any error talking to the KAERIS API."""
 
 
+class KaerisTimeout(KaerisError):
+    """The job did not finish within the wait we were given — it is still running on the
+    server, and `job_id` says which one. A subclass of KaerisError so every existing caller
+    keeps behaving exactly as before; callers that can offer "come back for it later" (the MCP
+    server, whose client cuts a tool call off after its own timeout) catch this instead."""
+
+    def __init__(self, job_id, waited):
+        self.job_id = job_id
+        self.waited = waited
+        super().__init__(
+            f"Still running after {waited:.0f}s (job {job_id}). The translation continues on "
+            "the server and is not charged twice — collect it with this job id.")
+
+
 def checked_key(key, label):
     """A key ready to travel in an HTTP header, or a clear refusal.
 
@@ -342,7 +356,9 @@ class KaerisClient:
             if state == "error":
                 raise KaerisError(status.get("error") or "Translation failed")
             time.sleep(interval)
-        raise KaerisError("Timed out waiting for translation")
+        # Named exception, carrying the job id: a caller that gives up must still be able to
+        # come back for work that has already been paid for.
+        raise KaerisTimeout(job_id, max_wait)
 
     def receipt(self, job_id, edit_token=None):
         """What the server says actually happened on a run: model, plan, languages delivered
