@@ -17,6 +17,61 @@ class KaerisError(Exception):
     """Any error talking to the KAERIS API."""
 
 
+def checked_key(key, label):
+    """A key ready to travel in an HTTP header, or a clear refusal.
+
+    Surrounding whitespace is stripped: a key pasted from an email or read out of a file
+    routinely carries a trailing newline, and http.client rejects that with a ValueError deep
+    in the stack — the person sees a traceback about header values and has no idea their key
+    is fine apart from one invisible character. Anything else outside printable ASCII (a
+    Cyrillic letter that looks Latin, a smart quote from a document) is refused by name here
+    rather than as a UnicodeEncodeError, which is what an agent used to get.
+
+    The key itself is NEVER part of the message — the whole point is that it does not leak
+    into somebody's transcript or log.
+    """
+    if key is None:
+        return None
+    cleaned = str(key).strip()
+    if not cleaned:
+        return None
+    if any(not (32 <= ord(ch) < 127) for ch in cleaned):
+        raise KaerisError(
+            f"This {label} contains characters that cannot be sent in an HTTP header "
+            "(non-ASCII or control characters). Check it was copied whole and without "
+            "invisible characters.")
+    return cleaned
+
+
+def checked_api_url(url):
+    """The API base URL, refused if it would send secrets in the clear.
+
+    `--api-url` / KAERIS_API_URL exists for local development and self-hosting, and it is also
+    the single lever that redirects everything this client sends. Measured 16.08.2026 with a
+    stand-in server on the local network: over `http://` the PAYING customer's key arrived in
+    the `X-API-Key` header in plain text, together with the contents of the file being
+    translated — anyone on the same wifi reads both.
+
+    https is required; http is allowed only for loopback, where there is no wire to listen on
+    and where a developer running the backend locally actually needs it. A bare host is read
+    as https. The refusal is loud: pointing at another host has to be a visible decision, not
+    a silent downgrade.
+    """
+    raw = (url or "").strip().rstrip("/")
+    if not raw:
+        raise KaerisError("Empty API URL")
+    parsed = urllib.parse.urlsplit(raw if "://" in raw else "https://" + raw)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme == "https":
+        return raw if "://" in raw else "https://" + raw
+    loopback = host in ("localhost", "::1") or host.startswith("127.")
+    if parsed.scheme == "http" and loopback:
+        return raw
+    raise KaerisError(
+        f"Refusing to use {raw}: an API URL must be https — over http your API key and the "
+        "strings you translate travel in the clear. (http is allowed for localhost only.)")
+
+
 # One directory level is legitimate: Android output is `values-<lang>/strings.xml`. Everything
 # else we produce is a single file name.
 MAX_MEMBER_DEPTH = 2
@@ -95,9 +150,9 @@ def _urlopen(req, timeout):
 
 class KaerisClient:
     def __init__(self, api_url=DEFAULT_API, api_key=None, openrouter_key=None, timeout=180):
-        self.api_url = api_url.rstrip("/")
-        self.api_key = api_key
-        self.openrouter_key = openrouter_key
+        self.api_url = checked_api_url(api_url)
+        self.api_key = checked_key(api_key, "KAERIS API key")
+        self.openrouter_key = checked_key(openrouter_key, "OpenRouter key")
         self.timeout = timeout
         # Set by submit(): ownership proof for the job this client just started.
         self.last_edit_token = ""
