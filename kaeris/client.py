@@ -17,6 +17,35 @@ class KaerisError(Exception):
     """Any error talking to the KAERIS API."""
 
 
+# One directory level is legitimate: Android output is `values-<lang>/strings.xml`. Everything
+# else we produce is a single file name.
+MAX_MEMBER_DEPTH = 2
+
+
+def safe_member_name(name):
+    """The name a ZIP member may be written under, or KaerisError if it may not be written.
+
+    Rejects what an archive uses to escape the directory it is unpacked into: absolute paths,
+    Windows drive letters and UNC prefixes, backslash separators, any `..` segment, and
+    nesting deeper than one directory. Returns the name normalized to forward slashes.
+    """
+    raw = str(name).replace("\\", "/")
+    parts = [p for p in raw.split("/") if p not in ("", ".")]
+    bad = (
+        not parts
+        or raw.startswith("/")
+        or ".." in parts
+        or (len(raw) > 1 and raw[1] == ":")          # C:\... / C:/...
+        or len(parts) > MAX_MEMBER_DEPTH
+    )
+    if bad:
+        raise KaerisError(
+            f"Refusing a result archive: the member name {name!r} would write outside the "
+            "output directory. Nothing was written."
+        )
+    return "/".join(parts)
+
+
 class _SameHostRedirect(urllib.request.HTTPRedirectHandler):
     """Follow a redirect only while it stays on the same host.
 
@@ -279,10 +308,27 @@ class KaerisClient:
         return json.loads(self._get(f"/api/preview/{job_id}").decode())
 
     def download(self, job_id):
-        """Download the result ZIP; returns {member_name: bytes}."""
+        """Download the result ZIP; returns {member_name: bytes}.
+
+        Member names are checked before they leave this method. Our own server builds them
+        from a language code it has already matched against a whitelist — but that is the
+        SERVER's half of the guard, and the client's half was missing entirely: whatever the
+        archive said, we joined onto the output directory and wrote. Proven 16.08.2026 with a
+        stand-in server (which is exactly where KAERIS_API_URL can point): an archive claiming
+        `../../.ssh/authorized_keys` and `../../../.bashrc` put both files on disk outside the
+        project. A tool an agent drives must not be able to write outside the repo it was
+        pointed at, whoever is on the other end of the connection.
+
+        Allowed: `<lang>.<ext>` and one directory level (`values-de/strings.xml` — Android is
+        the only nested member we produce). Refused loudly: absolute paths, drive letters,
+        `..` in any segment, deeper nesting. A refusal is not partial — an archive that
+        contains one of these is not our archive, so nothing from it is written.
+        """
         raw = self._get(f"/api/download/{job_id}")
         out = {}
         with zipfile.ZipFile(io.BytesIO(raw)) as zf:
             for name in zf.namelist():
-                out[name] = zf.read(name)
+                if name.endswith(("/", "\\")):
+                    continue                       # directory entry — nothing to write
+                out[safe_member_name(name)] = zf.read(name)
         return out
