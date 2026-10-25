@@ -324,6 +324,8 @@ def _target_path(src_path, lang, out_dir, source_lang):
         d = out_dir if out_dir else src_dir
         return os.path.join(d, f"{lang}{ext}")
 
+    if os.altsep:
+        src_dir = src_dir.replace(os.altsep, os.sep)
     segs = src_dir.split(os.sep) if src_dir else []
     last_idx = None
     for i, seg in enumerate(segs):
