@@ -105,6 +105,9 @@ export KAERIS_OPENROUTER_KEY=sk-or-v1-xxxx   # Lifetime/BYOK only
 kaeris translate en.json --langs de,uk
 ```
 
+Prefer the environment variable to `--key`: a key typed on the command line stays in your shell
+history and shows in the process list.
+
 Get a key at <https://kaeris.dev/pricing.html>. A free OpenRouter key: <https://openrouter.ai/keys>.
 
 ## `kaeris quota` — how much of the month is left

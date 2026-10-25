@@ -400,6 +400,22 @@ def cmd_languages(args):
     return 0
 
 
+def _unknown_langs(client, langs):
+    """Targets whose language the server does not offer, found before any file is sent.
+
+    Only the primary subtag is compared (pt-BR is fine when pt is offered), so a regional
+    spelling the server accepts is never refused here. When the list cannot be fetched
+    (offline, an older server) nothing is refused: the server still answers for itself."""
+    try:
+        known = client.languages()
+    except Exception:
+        return []
+    if not isinstance(known, dict) or not known:
+        return []
+    bases = {str(c).replace("_", "-").split("-")[0].lower() for c in known}
+    return [l for l in langs if re.split(r"[-_]", l)[0].lower() not in bases]
+
+
 _XC_MARKER_RE = re.compile(r"((?:⟦[^⟦⟧]*⟧)+)")
 
 
@@ -683,6 +699,11 @@ def cmd_translate(args):
         os.makedirs(args.out, exist_ok=True)
 
     client = _client(args)
+    unknown = _unknown_langs(client, langs)
+    if unknown:
+        err(f"Unknown language code: {', '.join(unknown)}. Run 'kaeris languages' for the list "
+            "(codes like de, ja, pt-BR, zh-Hant).")
+        return 1
     if not getattr(client, "api_key", "fake"):
         _show_demo_notice(client)
     _target_path.warned = False  # warn at most once per `translate` run, not per file/lang
@@ -1128,7 +1149,8 @@ def build_parser():
     p.add_argument("--version", action="version", version=f"kaeris {__version__}")
     p.add_argument("--api-url", default=os.environ.get("KAERIS_API_URL", DEFAULT_API),
                    help="API base URL (default: https://kaeris.dev)")
-    p.add_argument("--key", "-k", help="API key (or env KAERIS_API_KEY)")
+    p.add_argument("--key", "-k", help="API key (or env KAERIS_API_KEY). A key typed here stays in your "
+                                       "shell history and shows in the process list; prefer the env var.")
     p.add_argument("--openrouter-key", help="OpenRouter key for Lifetime/BYOK (or env KAERIS_OPENROUTER_KEY)")
     p.add_argument("--config", help=f"Path to a config file (default: ./{CONFIG_FILENAME} if present). "
                                     "CLI flags override the config; the config overrides built-in defaults.")
