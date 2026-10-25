@@ -183,6 +183,11 @@ def check_locales(source_obj, langs, load_target, glossary=None):
             tgt_val = target_flat.get(key)
             if not isinstance(src_val, str) or not isinstance(tgt_val, str):
                 continue
+            if src_val.strip() and not tgt_val.strip():
+                result["faults"].append({"lang": lang, "key": key, "severity": "error",
+                                         "msg": "empty translation — the source has text"})
+                result["ok"] = False
+                continue
             for f in det.string_faults(src_val, tgt_val, lang, glossary):
                 rec = {"lang": lang, "key": key, "msg": f["msg"]}
                 if f["severity"] == det.ERROR:

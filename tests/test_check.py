@@ -107,3 +107,20 @@ def test_check_locales_missing_file():
     assert result["ok"] is False
     assert result["missing_files"] == ["ja"]
     assert result["missing"] == {"ja": ["a"]}
+
+
+def test_check_locales_empty_translation_is_a_red_fault():
+    source = {"a": "Hello", "b": "Bye", "c": "Save"}
+    targets = {"de": {"a": "Hallo", "b": "Tschüss", "c": ""}}
+    result = chk.check_locales(source, ["de"], lambda lang: targets.get(lang))
+    assert result["ok"] is False
+    assert [(f["lang"], f["key"]) for f in result["faults"]] == [("de", "c")]
+    assert "empty" in result["faults"][0]["msg"]
+
+
+def test_check_locales_empty_source_may_stay_empty():
+    source = {"a": "", "b": "Bye"}
+    targets = {"de": {"a": "", "b": "Tschüss"}}
+    result = chk.check_locales(source, ["de"], lambda lang: targets.get(lang))
+    assert result["ok"] is True
+    assert result["faults"] == []
