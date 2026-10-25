@@ -622,6 +622,22 @@ def _progress_printer():
     return show
 
 
+def _show_demo_notice(client):
+    """One line when there is no key: translate does not refuse, it silently runs as the
+    anonymous demo. The limits come from the server that enforces them, never from this file;
+    if it cannot be asked, the line still says what mode this is, just without numbers."""
+    limits = ""
+    try:
+        chars = client.key_info().get("char_limit")
+        langs = client.config().get("max_langs_anon")
+        if chars and langs:
+            limits = f"{chars:,} chars per file, {langs} languages per run"
+    except Exception:
+        pass
+    info(f"no key: free demo limits{' ' + limits if limits else ''}, "
+         "get a key: kaeris.dev/developer")
+
+
 def cmd_translate(args):
     config, config_path = _load_config(args)
     if config_path:
@@ -661,6 +677,8 @@ def cmd_translate(args):
         os.makedirs(args.out, exist_ok=True)
 
     client = _client(args)
+    if not getattr(client, "api_key", "fake"):
+        _show_demo_notice(client)
     _target_path.warned = False  # warn at most once per `translate` run, not per file/lang
 
     multi = len(files) > 1
@@ -1115,7 +1133,9 @@ def build_parser():
         "translate", help="Translate a strings file",
         description="Translate a strings file. Reads ./kaeris.json (or --config PATH) for defaults "
                     "when 'file'/--langs/etc. are omitted — precedence is CLI flag > kaeris.json > "
-                    "built-in default. Run `kaeris init` to create one.",
+                    "built-in default. Run `kaeris init` to create one. "
+                    "Without a key it runs as a free anonymous demo with smaller limits "
+                    "(get a key: kaeris.dev/developer).",
     )
     t.add_argument("files", nargs="*",
                    help="Source file(s) (.json/.yml/.strings/.xcstrings/.md/.mdx/.po/.arb/.xml/.csv/.xliff/.properties/.resx/.ftl) — accepts several "
