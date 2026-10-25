@@ -60,6 +60,19 @@ def _read(path):
         return {}
 
 
+def _write(stream, text):
+    """Write even to a console whose code page cannot encode the text (cp1251 on Windows)."""
+    try:
+        stream.write(text)
+    except UnicodeEncodeError:
+        enc = getattr(stream, "encoding", None) or "ascii"
+        stream.write(text.encode(enc, "replace").decode(enc, "replace"))
+    try:
+        stream.flush()
+    except Exception:
+        pass
+
+
 def maybe_notify(package, current, *, stream=None, env=None, now=time.time, fetch=_fetch_latest,
                  cache_dir=None, quiet=False, require_tty=True):
     """Print one line to `stream` (stderr) when PyPI has a newer `package`. Returns the line or None."""
@@ -93,7 +106,7 @@ def maybe_notify(package, current, *, stream=None, env=None, now=time.time, fetc
         a, b = _parse(current), _parse(latest)
         if a is None or b is None or not b > a:
             return None
-        line = f"A new version of {package} is available: {current} → {latest}. Update: pip install -U {package}"
+        line = f"A new version of {package} is available: {current} -> {latest}. Update: pip install -U {package}"
         stream.write(line + "\n")
         return line
     except Exception:

@@ -31,13 +31,13 @@ def run(current="0.2.1", latest="0.2.9", env=None, now=1_000_000.0, cache=None, 
     d = cache or tempfile.mkdtemp()
     out = uc.maybe_notify("kaeris", current, stream=stream, env=env or {}, now=lambda: now,
                           fetch=fetch or default_fetch, cache_dir=d, **kw)
-    return out, stream.getvalue(), calls, d
+    return out, (stream.getvalue() if hasattr(stream, 'getvalue') else ''), calls, d
 
 
 class Compare(unittest.TestCase):
     def test_newer_prints_one_line(self):
         out, text, calls, _ = run("0.2.1", "0.2.9")
-        self.assertEqual(text, "A new version of kaeris is available: 0.2.1 → 0.2.9. "
+        self.assertEqual(text, "A new version of kaeris is available: 0.2.1 -> 0.2.9. "
                                "Update: pip install -U kaeris\n")
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0], "https://pypi.org/pypi/kaeris/json")
@@ -55,6 +55,25 @@ class Compare(unittest.TestCase):
     def test_garbage_version_is_silent(self):
         self.assertEqual(run("0.2.1", "not-a-version")[1], "")
         self.assertEqual(run("0.2.1", None)[1], "")
+
+
+class Encoding(unittest.TestCase):
+    def test_cp1251_console_still_gets_the_line(self):
+        # A Windows console in cp1251 cannot encode "→"; the hint used to vanish there.
+        raw = io.BytesIO()
+        stream = io.TextIOWrapper(raw, encoding="cp1251", write_through=True)
+        stream.isatty = lambda: True
+        out, _, _, _ = run(stream=stream)
+        self.assertIsNotNone(out)
+        self.assertIn(b"A new version of kaeris is available", raw.getvalue())
+
+    def test_write_replaces_what_the_console_cannot_encode(self):
+        raw = io.BytesIO()
+        stream = io.TextIOWrapper(raw, encoding="cp1251", write_through=True)
+        arrow, han, nl = chr(0x2192), chr(0x4E2D), chr(10)
+        uc._write(stream, f"a {arrow} b {han}{nl}")
+        self.assertTrue(raw.getvalue().startswith(b"a "))
+        self.assertEqual(raw.getvalue().rstrip(), b"a ? b ?")
 
 
 class Silence(unittest.TestCase):
