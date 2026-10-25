@@ -271,6 +271,10 @@ def _load_config(args):
     return cfg, path
 
 
+class _BadTarget(Exception):
+    pass
+
+
 def _hint(e):
     """Кодировка — не синтаксис. Без этой подсказки человек идёт искать сломанную скобку в
     файле, который цел: он просто сохранён не в UTF-8, и чинится это одной командой."""
@@ -500,11 +504,9 @@ def cmd_check(args):
         try:
             obj = inc.load_json(target_path)
         except (OSError, ValueError) as e:
-            warn(f"{lang}: could not parse {target_path}: {e}{_hint(e)} — treating as missing")
-            return None
+            raise _BadTarget(f"{lang}: could not parse {target_path}: {e}{_hint(e)}")
         if not isinstance(obj, dict):
-            warn(f"{lang}: {target_path} is not a JSON object — treating as missing")
-            return None
+            raise _BadTarget(f"{lang}: {target_path} is not a JSON object")
         return _strip_arb_meta(obj) if is_arb else obj
 
     # "keep" is the documented key `kaeris init` writes and `translate` reads; check used to
@@ -514,7 +516,11 @@ def cmd_check(args):
         glossary = [t.strip() for t in args.glossary.split(",") if t.strip()]
     else:
         glossary = config.get("keep") or config.get("glossary") or None
-    result = chk.check_locales(source_obj, langs, load_target, glossary)
+    try:
+        result = chk.check_locales(source_obj, langs, load_target, glossary)
+    except _BadTarget as e:
+        err(str(e))
+        return 2
 
     if getattr(args, "sarif", None):
         # Written even when nothing is wrong: upload-sarif fails a workflow if the file is
