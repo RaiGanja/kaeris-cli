@@ -367,6 +367,7 @@ Anything not passed falls back to `kaeris.json`, then to the built-in default.
 - `KAERIS_OPENROUTER_KEY` — OpenRouter key (BYOK)
 - `KAERIS_API_URL` — override the API base URL
 - `NO_COLOR` — disable coloured output
+- `KAERIS_NO_UPDATE_CHECK=1` — turn off the once-a-day "new version available" line on stderr (it is already silent in CI, in `--json` mode and when stderr is not a terminal)
 
 ## License
 

@@ -1279,13 +1279,23 @@ def build_parser():
     return p
 
 
+def _update_hint(args):
+    """One quiet stderr line when PyPI has a newer kaeris, after the command's own work."""
+    from . import updatecheck
+    from . import __version__
+    machine = bool(getattr(args, "json", False) or getattr(args, "sarif", None))
+    updatecheck.maybe_notify("kaeris", __version__, quiet=machine)
+
+
 def main(argv=None):
     args = build_parser().parse_args(argv)
     if not getattr(args, "command", None):
         build_parser().print_help()
         return 1
     try:
-        return args.func(args)
+        code = args.func(args)
+        _update_hint(args)
+        return code
     except KaerisError as e:
         err(str(e))
         return 2
