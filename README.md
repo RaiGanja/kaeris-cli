@@ -188,7 +188,6 @@ account and no network. **RED** problems fail the build; **YELLOW** are advisory
 - **Placeholder mismatch** — a target string's placeholders (`{name}`, `%s`, `%d`, `{{x}}`,
   `${x}`, ICU `{count, plural, ...}`) don't match the source's — dropped, renamed, or
   hallucinated placeholders crash or silently drop data at runtime.
-- **Empty translation** — the target string is empty (or only whitespace) while the source has text.
 - **Number drift** — a number in the source changed or vanished in the translation
   (`Delete 5 files` → `Delete 50 files`).
 - **Broken entities / encoding** — double-encoded (`&amp;amp;`) or malformed `\u` escapes.
@@ -200,6 +199,7 @@ account and no network. **RED** problems fail the build; **YELLOW** are advisory
 
 **YELLOW — advisory warnings (`--strict` to fail):**
 
+- **Empty translation** — the target string is empty (or only whitespace) while the source has text. Projects often keep empty strings on purpose (a fallback language fills them), so this is a warning, not a failure.
 - **Untranslated leftover** — the target still reads as the source language.
 - **Register / casing drift**, **cross-key inconsistency**, and **UI-overflow risk** (a
   translation much longer than its source, relative to that language's typical expansion).

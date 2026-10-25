@@ -145,7 +145,7 @@ def check_locales(source_obj, langs, load_target, glossary=None):
        "faults": [{"lang", "key", "severity": "error", "msg"}],
        "warnings": [{"lang", "key"?, "severity": "warn", "msg"}]}
     `ok` is True only if there are no missing keys, no placeholder issues and
-    no RED detector faults (extra/stale keys and YELLOW warnings never affect
+    no RED detector faults (extra/stale keys, empty translations and YELLOW warnings never affect
     `ok` — that's what --strict is for).
     """
     source_flat = flatten_all(source_obj)
@@ -184,9 +184,8 @@ def check_locales(source_obj, langs, load_target, glossary=None):
             if not isinstance(src_val, str) or not isinstance(tgt_val, str):
                 continue
             if src_val.strip() and not tgt_val.strip():
-                result["faults"].append({"lang": lang, "key": key, "severity": "error",
-                                         "msg": "empty translation — the source has text"})
-                result["ok"] = False
+                result["warnings"].append({"lang": lang, "key": key, "severity": "warn",
+                                           "msg": "empty translation — the source has text"})
                 continue
             for f in det.string_faults(src_val, tgt_val, lang, glossary):
                 rec = {"lang": lang, "key": key, "msg": f["msg"]}
