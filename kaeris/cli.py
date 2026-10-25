@@ -104,6 +104,11 @@ def _quota_line(info_json):
     return text, level
 
 
+# The receipt carries the tier id the server keys limits by; people read the plan's name.
+_PLAN_NAMES = {"premium": "Pro", "teamapi": "Team/API", "byok": "Lifetime", "team": "Scale",
+               "free": "Free key", "anonymous": "Free"}
+
+
 def _fmt_receipt(rec):
     """Two lines a human reads, plus the things worth interrupting them for.
 
@@ -118,7 +123,8 @@ def _fmt_receipt(rec):
     lines = []
     delivered, failed = langs.get("delivered") or [], langs.get("failed") or []
     lines.append(
-        f"Run: {rec.get('model', '?')} · {rec.get('plan') or 'plan hidden'} · "
+        f"Run: {rec.get('model', '?')} · "
+        f"{_PLAN_NAMES.get(rec.get('plan'), rec.get('plan')) or 'plan hidden'} · "
         f"{len(delivered)}/{len(langs.get('requested') or [])} languages · "
         f"{rec.get('strings', 0)} strings · {rec.get('seconds', 0)}s")
     if not mine:

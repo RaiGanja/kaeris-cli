@@ -92,8 +92,9 @@ in Arabic, with `%lld` left exactly where it was.
 | Tier | How | Chars per file | Languages per run |
 |------|-----|----------------|-------------------|
 | **Free** (anonymous) | no key | 10,000 | 8 |
+| **Free API key** | `--key` with the free key from [kaeris.dev/docs](https://kaeris.dev/docs#key) | 50,000 | 8 |
 | **Pro / Team/API** | `--key kaerisp_…` or `KAERIS_API_KEY` | 100k / 1M | all 46 |
-| **Lifetime (BYOK)** | `--key` **and** `--openrouter-key sk-or-…` | unlimited (you pay OpenRouter for tokens) | all 46 |
+| **Lifetime (BYOK)** | `--key` **and** `--openrouter-key sk-or-…` | 1,000,000, no monthly volume (you pay OpenRouter for tokens) | all 46 |
 
 All 46 languages are available to everyone — the free tier translates up to **8 of them per
 run**, so `--langs` with a longer list is refused before anything is charged or written.
@@ -151,7 +152,7 @@ retranslates rather than serving something produced under rules that no longer a
 Every `kaeris translate` ends with two lines about the run itself:
 
 ```
-→ Run: openai/gpt-4o-mini · premium · 3/3 languages · 412 strings · 18.4s
+→ Run: google/gemini-2.5-flash-lite · Pro · 3/3 languages · 412 strings · 18.4s
      124k charged · 38k reused free  ·  icu, verify, formal
 ```
 
