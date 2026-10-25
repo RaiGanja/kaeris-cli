@@ -54,7 +54,8 @@ class BuiltArtifactsAreCurrent(unittest.TestCase):
             with zipfile.ZipFile(wheel) as z:
                 meta = [n for n in z.namelist() if n.endswith(".dist-info/METADATA")]
                 self.assertTrue(meta, f"{os.path.basename(wheel)}: no METADATA")
-                body = z.read(meta[0]).decode("utf-8")
+                # Built on Windows, setuptools writes METADATA with CRLF; PyPI reads both.
+                body = z.read(meta[0]).decode("utf-8").replace("\r\n", "\n")
                 # METADATA is headers, a blank line, then the README verbatim.
                 packaged = body.split("\n\n", 1)[1] if "\n\n" in body else ""
             self.assertEqual(
