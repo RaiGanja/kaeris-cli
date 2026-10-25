@@ -92,7 +92,7 @@ in Arabic, with `%lld` left exactly where it was.
 | Tier | How | Chars per file | Languages per run |
 |------|-----|----------------|-------------------|
 | **Free** (anonymous) | no key | 10,000 | 8 |
-| **Pro / Scale** | `--key kaerisp_…` or `KAERIS_API_KEY` | 200k / 500k | all 46 |
+| **Pro / Team/API** | `--key kaerisp_…` or `KAERIS_API_KEY` | 100k / 1M | all 46 |
 | **Lifetime (BYOK)** | `--key` **and** `--openrouter-key sk-or-…` | unlimited (you pay OpenRouter for tokens) | all 46 |
 
 All 46 languages are available to everyone — the free tier translates up to **8 of them per
@@ -108,13 +108,13 @@ Get a key at <https://kaeris.dev/pricing.html>. A free OpenRouter key: <https://
 
 ## `kaeris quota` — how much of the month is left
 
-Paid plans include a monthly character volume (Pro 30M, Scale 75M, Team/API 150M, counted as
+Paid plans include a monthly character volume (Pro 15M, Team/API 75M, counted as
 characters × languages). Ask before a large run, rather than finding out from a refusal in the
 middle of one:
 
 ```bash
 kaeris quota
-# ✓ Monthly volume: 1.2M of 30M used · 28.8M left · resets 2026-09-01
+# ✓ Monthly volume: 1.2M of 15M used · 13.8M left · resets 2026-09-01
 ```
 
 Every `kaeris translate` prints the same line when it finishes, and raises it to a warning once
