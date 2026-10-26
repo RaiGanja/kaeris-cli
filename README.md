@@ -21,6 +21,30 @@ pip install kaeris
 pipx run kaeris --help
 ```
 
+### Windows: `kaeris` is not recognized
+
+`pip` puts `kaeris.exe` into Python's `Scripts` folder, and on Windows that folder is often not
+on `PATH` — with the Python install manager (`pythoncore-3.14-64`) it never is. pip says so
+in a yellow `WARNING: The script kaeris.exe is installed in '…\Scripts' which is not on PATH`.
+
+Every command works without it — run the module through Python instead:
+
+```powershell
+python -m kaeris translate locales/en.json --langs de,fr
+py -m kaeris --version
+```
+
+To type plain `kaeris`, add the folder to your user `PATH` once. This prints the folder:
+
+```powershell
+python -c "import sysconfig; print(sysconfig.get_path('scripts'))"
+```
+
+(after a per-user pip install it is `python -c "import sysconfig; print(sysconfig.get_path('scripts', 'nt_user'))"`).
+Add it in *Settings → System → About → Advanced system settings → Environment Variables →
+Path (your user) → New*, then open a new terminal. `pipx install kaeris` is the other way: pipx
+keeps its own folder on `PATH` (`pipx ensurepath`).
+
 ## Config file (`kaeris.json`) — set it up once, forget it
 
 ```bash

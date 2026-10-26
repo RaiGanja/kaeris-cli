@@ -119,3 +119,29 @@ jobs:
           echo "$out"
           echo "$out" | grep -q "save" || {
             echo "::error::the installed wheel did not report the missing key"; exit 1; }
+          # `python -m kaeris` is the documented way round a Scripts folder that is not on PATH
+          # (Windows, README "kaeris is not recognized"). Run from outside the checkout so it is
+          # the installed package answering, not the source tree.
+          (cd /tmp && /tmp/clean/bin/python -m kaeris --version)
+
+  # The person who reported "kaeris is not recognized" runs Windows and Python 3.14 from the
+  # install manager. The workaround the README gives them has to work there.
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Install and run as the README says
+        shell: pwsh
+        run: |
+          python -m venv $env:RUNNER_TEMP\clean
+          & $env:RUNNER_TEMP\clean\Scripts\python.exe -m pip install .
+          Set-Location $env:RUNNER_TEMP
+          & .\clean\Scripts\python.exe -m kaeris --version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & .\clean\Scripts\kaeris.exe --version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & .\clean\Scripts\python.exe -c "import sysconfig; print(sysconfig.get_path('scripts'))"
