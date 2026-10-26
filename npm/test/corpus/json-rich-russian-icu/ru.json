@@ -1,0 +1,4 @@
+{
+  "n": "{count, plural, one {# файл} other {# файла}}",
+  "s": "{g, select, male {Он} other {Они}} пришёл"
+}

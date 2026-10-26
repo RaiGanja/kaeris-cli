@@ -1,0 +1,34 @@
+{
+ "json": {
+  "code": 0,
+  "stdout": {
+   "ok": true,
+   "missing": {},
+   "extra": {},
+   "placeholder_issues": [],
+   "missing_files": [],
+   "faults": [],
+   "warnings": [
+    {
+     "lang": "ar",
+     "key": "b",
+     "msg": "may be untranslated — no target-language script, still reads as source text",
+     "severity": "warn"
+    },
+    {
+     "lang": "zh",
+     "key": "c",
+     "msg": "may be untranslated — no target-language script, still reads as source text",
+     "severity": "warn"
+    }
+   ]
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 0,
+  "stdout": "",
+  "stderr": "! ar: 1 warning(s):\n    b: may be untranslated — no target-language script, still reads as source text\n! zh: 1 warning(s):\n    c: may be untranslated — no target-language script, still reads as source text\n✓ hi: complete & placeholder-safe\n✓ he: complete & placeholder-safe\n! 2 warning(s) — non-blocking (use --strict to fail on them)\n"
+ },
+ "sarif": null
+}

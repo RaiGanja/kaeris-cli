@@ -1,0 +1,165 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": false,
+   "missing": {
+    "de": [
+     "buttons.2",
+     "percent"
+    ]
+   },
+   "extra": {
+    "de": [
+     "stale"
+    ]
+   },
+   "placeholder_issues": [
+    {
+     "lang": "de",
+     "key": "app.greeting",
+     "missing": [
+      "{name}"
+     ],
+     "added": [
+      "{nom}"
+     ]
+    },
+    {
+     "lang": "de",
+     "key": "dollar",
+     "missing": [
+      "${total}"
+     ],
+     "added": [
+      "{total}"
+     ]
+    },
+    {
+     "lang": "de",
+     "key": "printf",
+     "missing": [
+      "%2$d"
+     ],
+     "added": [
+      "%2$s"
+     ]
+    }
+   ],
+   "missing_files": [],
+   "faults": [
+    {
+     "lang": "de",
+     "key": "app.greeting",
+     "msg": "lost placeholder {name}",
+     "severity": "error"
+    },
+    {
+     "lang": "de",
+     "key": "app.greeting",
+     "msg": "invented placeholder {nom} (not in source)",
+     "severity": "error"
+    },
+    {
+     "lang": "de",
+     "key": "app.items",
+     "msg": "ICU plural is missing the required 'other' branch",
+     "severity": "error"
+    },
+    {
+     "lang": "de",
+     "key": "price",
+     "msg": "currency changed: USD → EUR — this is a different price, not a translation",
+     "severity": "error"
+    },
+    {
+     "lang": "de",
+     "key": "dollar",
+     "msg": "lost placeholder ${total}",
+     "severity": "error"
+    },
+    {
+     "lang": "de",
+     "key": "dollar",
+     "msg": "invented placeholder {total} (not in source)",
+     "severity": "error"
+    },
+    {
+     "lang": "de",
+     "key": "printf",
+     "msg": "lost placeholder %2$d",
+     "severity": "error"
+    },
+    {
+     "lang": "de",
+     "key": "printf",
+     "msg": "invented placeholder %2$s (not in source)",
+     "severity": "error"
+    },
+    {
+     "lang": "de",
+     "key": "vue",
+     "msg": "lost placeholder {{ user.name }}",
+     "severity": "error"
+    },
+    {
+     "lang": "de",
+     "key": "ref",
+     "msg": "lost placeholder $t(app.title)",
+     "severity": "error"
+    },
+    {
+     "lang": "de",
+     "key": "version",
+     "msg": "number 2.4.2 appears in the translation but not the source",
+     "severity": "error"
+    },
+    {
+     "lang": "de",
+     "key": "version",
+     "msg": "number 2.4.1 from the source is missing or changed in the translation",
+     "severity": "error"
+    },
+    {
+     "lang": "de",
+     "key": "tag",
+     "msg": "lost inline tag </b>",
+     "severity": "error"
+    },
+    {
+     "lang": "de",
+     "key": "tag",
+     "msg": "lost inline tag <b>",
+     "severity": "error"
+    },
+    {
+     "lang": "de",
+     "key": "html",
+     "msg": "double-encoded entity &amp;amp; — the & was re-escaped (renders literally)",
+     "severity": "error"
+    }
+   ],
+   "warnings": [
+    {
+     "lang": "de",
+     "key": "multi",
+     "msg": "line breaks changed: 1 in the source, 0 in the translation",
+     "severity": "warn"
+    },
+    {
+     "lang": "de",
+     "key": "emph",
+     "msg": "emphasis *…* broken: 1 in the source, 0 intact in the translation",
+     "severity": "warn"
+    }
+   ]
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "✗ de: 2 missing key(s): buttons.2, percent\n✗ de: 3 placeholder mismatch(es):\n    app.greeting: missing ['{name}'], added ['{nom}']\n    dollar: missing ['${total}'], added ['{total}']\n    printf: missing ['%2$d'], added ['%2$s']\n✗ de: 15 translation fault(s):\n    app.greeting: lost placeholder {name}\n    app.greeting: invented placeholder {nom} (not in source)\n    app.items: ICU plural is missing the required 'other' branch\n    price: currency changed: USD → EUR — this is a different price, not a translation\n    dollar: lost placeholder ${total}\n    dollar: invented placeholder {total} (not in source)\n    printf: lost placeholder %2$d\n    printf: invented placeholder %2$s (not in source)\n    vue: lost placeholder {{ user.name }}\n    ref: lost placeholder $t(app.title)\n    version: number 2.4.2 appears in the translation but not the source\n    version: number 2.4.1 from the source is missing or changed in the translation\n    tag: lost inline tag </b>\n    tag: lost inline tag <b>\n    html: double-encoded entity &amp;amp; — the & was re-escaped (renders literally)\n✗ de: 2 warning(s):\n    multi: line breaks changed: 1 in the source, 0 in the translation\n    emph: emphasis *…* broken: 1 in the source, 0 intact in the translation\n✗ de: 1 extra/stale key(s): stale\n✗ 2 missing keys, 3 placeholder mismatches, 15 translation faults, 2 warnings (--strict), 1 extra key (--strict)\n"
+ },
+ "sarif": null
+}

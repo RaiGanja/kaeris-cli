@@ -1,0 +1,26 @@
+msgid ""
+msgstr ""
+"Language: en\n"
+
+msgid "Hello, %(name)s"
+msgstr ""
+
+msgctxt "menu"
+msgid "Open"
+msgstr ""
+
+msgctxt "verb"
+msgid "Open"
+msgstr ""
+
+msgid "Dup"
+msgstr ""
+
+msgid "Dup"
+msgstr ""
+
+msgid "Multi"
+msgstr ""
+
+msgid "Untranslated"
+msgstr ""

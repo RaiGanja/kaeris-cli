@@ -1,0 +1,32 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": false,
+   "missing": {
+    "de": [
+     "md.0015"
+    ]
+   },
+   "extra": {},
+   "placeholder_issues": [],
+   "missing_files": [],
+   "faults": [
+    {
+     "lang": "de",
+     "key": "",
+     "msg": "14 translatable blocks, the source has 15: a heading, paragraph, list item or table cell was added, merged or lost",
+     "severity": "error"
+    }
+   ],
+   "warnings": []
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "✗ de: 1 missing key(s): md.0015\n✗ de: 1 translation fault(s):\n    14 translatable blocks, the source has 15: a heading, paragraph, list item or table cell was added, merged or lost\n✗ 1 missing key, 1 translation fault\n"
+ },
+ "sarif": null
+}

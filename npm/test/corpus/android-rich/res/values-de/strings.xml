@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+  <string name="app">Meine App</string>
+  <string name="hi">Hallo <xliff:g id="n" example="Bob">%1$s</xliff:g>!</string>
+  <string name="bold">Klicken <b>hier</b> &amp; <i>dort</i></string>
+  <string name="q">Es ist \"zitiert\" \n fertig</string>
+  <string name="cd"><![CDATA[Einige <b>cdata</b> Texte]]></string>
+  <string-array name="days">
+    <item>Mo</item>
+  </string-array>
+  <plurals name="files">
+    <item quantity="one">Eine Datei</item>
+    <item quantity="other">%d Dateien</item>
+  </plurals>
+  <string name="empty"></string>
+</resources>

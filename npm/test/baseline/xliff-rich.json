@@ -1,0 +1,49 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": false,
+   "missing": {
+    "de": [
+     "b"
+    ]
+   },
+   "extra": {},
+   "placeholder_issues": [
+    {
+     "lang": "de",
+     "key": "c",
+     "missing": [
+      "{n}"
+     ],
+     "added": [
+      "{m}"
+     ]
+    }
+   ],
+   "missing_files": [],
+   "faults": [
+    {
+     "lang": "de",
+     "key": "c",
+     "msg": "lost placeholder {n}",
+     "severity": "error"
+    },
+    {
+     "lang": "de",
+     "key": "c",
+     "msg": "invented placeholder {m} (not in source)",
+     "severity": "error"
+    }
+   ],
+   "warnings": []
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "✗ de: 1 missing key(s): b\n✗ de: 1 placeholder mismatch(es):\n    c: missing ['{n}'], added ['{m}']\n✗ de: 2 translation fault(s):\n    c: lost placeholder {n}\n    c: invented placeholder {m} (not in source)\n✗ 1 missing key, 1 placeholder mismatch, 2 translation faults\n"
+ },
+ "sarif": null
+}

@@ -1,0 +1,5 @@
+en:
+  greeting: "Hello, %{name}"
+  save: Save changes
+  cart:
+    items: "You have {count} items"

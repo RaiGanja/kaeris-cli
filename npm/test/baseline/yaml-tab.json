@@ -1,0 +1,13 @@
+{
+ "json": {
+  "code": 2,
+  "stdout": null,
+  "stderr": "✗ Could not read source file en.yml: Invalid YAML: line 2: a tab used as indentation\n"
+ },
+ "human": {
+  "code": 2,
+  "stdout": "",
+  "stderr": "✗ Could not read source file en.yml: Invalid YAML: line 2: a tab used as indentation\n"
+ },
+ "sarif": null
+}

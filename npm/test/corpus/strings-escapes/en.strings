@@ -1,0 +1,4 @@
+/* c */
+"a" = "Say \"hi\" %@";
+"b" = "Tab\there\n%d items";
+"c\"q" = "C:\\path";

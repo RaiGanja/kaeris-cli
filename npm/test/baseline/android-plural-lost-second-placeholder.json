@@ -1,0 +1,28 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": false,
+   "missing": {},
+   "extra": {},
+   "placeholder_issues": [],
+   "missing_files": [],
+   "faults": [
+    {
+     "lang": "de",
+     "key": "files⟦plural⟧",
+     "msg": "placeholder %2$d is missing from some plural/select arms (0× in the thinnest arm vs 1× in the source)",
+     "severity": "error"
+    }
+   ],
+   "warnings": []
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "✗ de: 1 translation fault(s):\n    files (plural): placeholder %2$d is missing from some plural/select arms (0× in the thinnest arm vs 1× in the source)\n✗ 1 translation fault\n"
+ },
+ "sarif": null
+}

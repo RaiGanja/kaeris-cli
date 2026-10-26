@@ -1,0 +1,13 @@
+{
+ "json": {
+  "code": 2,
+  "stdout": null,
+  "stderr": "✗ kaeris check reads JSON, ARB, YAML, .strings, .xcstrings, .po, Android XML, CSV, XLIFF, .properties, .resx, Fluent and Markdown (got en.txt)\n"
+ },
+ "human": {
+  "code": 2,
+  "stdout": "",
+  "stderr": "✗ kaeris check reads JSON, ARB, YAML, .strings, .xcstrings, .po, Android XML, CSV, XLIFF, .properties, .resx, Fluent and Markdown (got en.txt)\n"
+ },
+ "sarif": null
+}

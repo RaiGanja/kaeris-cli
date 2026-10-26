@@ -1,0 +1,13 @@
+{
+ "json": {
+  "code": 2,
+  "stdout": null,
+  "stderr": "✗ Could not read source file en.xliff: XLIFF root element must be <xliff>\n"
+ },
+ "human": {
+  "code": 2,
+  "stdout": "",
+  "stderr": "✗ Could not read source file en.xliff: XLIFF root element must be <xliff>\n"
+ },
+ "sarif": null
+}

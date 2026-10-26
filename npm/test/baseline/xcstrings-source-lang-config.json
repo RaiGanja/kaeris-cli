@@ -1,0 +1,21 @@
+{
+ "json": {
+  "code": 0,
+  "stdout": {
+   "ok": true,
+   "missing": {},
+   "extra": {},
+   "placeholder_issues": [],
+   "missing_files": [],
+   "faults": [],
+   "warnings": []
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 0,
+  "stdout": "",
+  "stderr": "→ Using config: kaeris.json\n✓ de: complete & placeholder-safe\n✓ all locales complete & placeholder-safe\n"
+ },
+ "sarif": null
+}

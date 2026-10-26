@@ -1,0 +1,12 @@
+{
+  "//": "config",
+  "_note": "x",
+  "source": "locales/en.json",
+  "langs": [
+    "de",
+    "fr"
+  ],
+  "keep": [
+    "KAERIS"
+  ]
+}

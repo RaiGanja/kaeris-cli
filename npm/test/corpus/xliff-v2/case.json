@@ -1,0 +1,8 @@
+{
+ "args": [
+  "--source",
+  "en.xliff",
+  "--langs",
+  "de"
+ ]
+}

@@ -1,0 +1,13 @@
+{
+ "json": {
+  "code": 2,
+  "stdout": null,
+  "stderr": "✗ de: could not parse de.json: Expecting value: line 1 column 7 (char 6)\n"
+ },
+ "human": {
+  "code": 2,
+  "stdout": "",
+  "stderr": "✗ de: could not parse de.json: Expecting value: line 1 column 7 (char 6)\n"
+ },
+ "sarif": null
+}

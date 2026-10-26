@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="r"><value>x</value></resheader>
+  <data name="A" xml:space="preserve"><value>Hello {0}</value><comment>c</comment></data>
+  <data name="Pic" type="System.Resources.ResXFileRef"><value>x.png</value></data>
+  <data name="B"><value>Bye</value></data>
+  <data name="C">Direct</data>
+</root>

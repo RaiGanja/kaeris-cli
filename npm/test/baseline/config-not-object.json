@@ -1,0 +1,13 @@
+{
+ "json": {
+  "code": 2,
+  "stdout": null,
+  "stderr": "✗ Invalid config in kaeris.json: expected a JSON object\n"
+ },
+ "human": {
+  "code": 2,
+  "stdout": "",
+  "stderr": "✗ Invalid config in kaeris.json: expected a JSON object\n"
+ },
+ "sarif": null
+}

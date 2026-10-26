@@ -1,0 +1,13 @@
+{
+ "json": {
+  "code": 2,
+  "stdout": null,
+  "stderr": "✗ Could not read source file res/values/strings.xml: Invalid Android XML XML: mismatched tag: line 1, column 31\n"
+ },
+ "human": {
+  "code": 2,
+  "stdout": "",
+  "stderr": "✗ Could not read source file res/values/strings.xml: Invalid Android XML XML: mismatched tag: line 1, column 31\n"
+ },
+ "sarif": null
+}

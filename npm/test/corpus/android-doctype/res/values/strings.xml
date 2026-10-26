@@ -1,0 +1,1 @@
+<!DOCTYPE x [<!ENTITY e "v">]><resources><string name="a">&e;</string></resources>

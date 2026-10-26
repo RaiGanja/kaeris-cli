@@ -1,0 +1,27 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": true,
+   "missing": {},
+   "extra": {},
+   "placeholder_issues": [],
+   "missing_files": [],
+   "faults": [],
+   "warnings": [
+    {
+     "lang": "de",
+     "msg": "go: translation +26 characters vs source — may overflow UI",
+     "severity": "warn"
+    }
+   ]
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "✗ de: 1 warning(s):\n    : go: translation +26 characters vs source — may overflow UI\n✗ 1 warning (--strict)\n"
+ },
+ "sarif": null
+}

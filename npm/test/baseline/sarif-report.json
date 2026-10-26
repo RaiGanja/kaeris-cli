@@ -1,0 +1,303 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": false,
+   "missing": {
+    "de": [
+     "b"
+    ],
+    "fr": [
+     "a",
+     "b",
+     "c"
+    ]
+   },
+   "extra": {
+    "de": [
+     "z"
+    ]
+   },
+   "placeholder_issues": [
+    {
+     "lang": "de",
+     "key": "a",
+     "missing": [
+      "{n}"
+     ],
+     "added": [
+      "{m}"
+     ]
+    }
+   ],
+   "missing_files": [
+    "fr"
+   ],
+   "faults": [
+    {
+     "lang": "de",
+     "key": "a",
+     "msg": "lost placeholder {n}",
+     "severity": "error"
+    },
+    {
+     "lang": "de",
+     "key": "a",
+     "msg": "invented placeholder {m} (not in source)",
+     "severity": "error"
+    }
+   ],
+   "warnings": []
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "→ SARIF report → out/report.sarif\n✗ de: 1 missing key(s): b\n✗ de: 1 placeholder mismatch(es):\n    a: missing ['{n}'], added ['{m}']\n✗ de: 2 translation fault(s):\n    a: lost placeholder {n}\n    a: invented placeholder {m} (not in source)\n! de: 1 extra/stale key(s): z\n✗ fr: locale file not found (fr.json)\n✗ 4 missing keys, 1 placeholder mismatch, 2 translation faults\n"
+ },
+ "sarif": {
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+   {
+    "tool": {
+     "driver": {
+      "name": "KAERIS",
+      "informationUri": "https://kaeris.dev",
+      "rules": [
+       {
+        "id": "missing-key",
+        "name": "Key missing from a locale",
+        "shortDescription": {
+         "text": "Key missing from a locale"
+        },
+        "fullDescription": {
+         "text": "A key present in the source file has no translation in this locale."
+        },
+        "helpUri": "https://kaeris.dev/developer.html"
+       },
+       {
+        "id": "placeholder",
+        "name": "Placeholder lost or altered",
+        "shortDescription": {
+         "text": "Placeholder lost or altered"
+        },
+        "fullDescription": {
+         "text": "A placeholder ({name}, %s, %d, <b>…) present in the source is missing or changed type in the translation — this breaks formatting at runtime."
+        },
+        "helpUri": "https://kaeris.dev/developer.html"
+       },
+       {
+        "id": "translation-fault",
+        "name": "Translation fault",
+        "shortDescription": {
+         "text": "Translation fault"
+        },
+        "fullDescription": {
+         "text": "A deterministic defect in the translation: dropped glossary term, plural form missing for the language's CLDR rules, number or currency drift, broken entity, ICU syntax."
+        },
+        "helpUri": "https://kaeris.dev/developer.html"
+       },
+       {
+        "id": "translation-warning",
+        "name": "Translation warning",
+        "shortDescription": {
+         "text": "Translation warning"
+        },
+        "fullDescription": {
+         "text": "A soft signal worth a look: text left in the source language, register drift, cross-key inconsistency, or a translation long enough to overflow the UI."
+        },
+        "helpUri": "https://kaeris.dev/developer.html"
+       },
+       {
+        "id": "extra-key",
+        "name": "Key not in the source",
+        "shortDescription": {
+         "text": "Key not in the source"
+        },
+        "fullDescription": {
+         "text": "A key exists in this locale but not in the source file — usually a leftover after a rename or deletion."
+        },
+        "helpUri": "https://kaeris.dev/developer.html"
+       }
+      ]
+     }
+    },
+    "results": [
+     {
+      "ruleId": "missing-key",
+      "level": "error",
+      "message": {
+       "text": "[de] missing translation for key \"b\""
+      },
+      "locations": [
+       {
+        "physicalLocation": {
+         "artifactLocation": {
+          "uri": "de.json"
+         },
+         "region": {
+          "startLine": 1
+         }
+        }
+       }
+      ]
+     },
+     {
+      "ruleId": "missing-key",
+      "level": "error",
+      "message": {
+       "text": "[fr] missing translation for key \"a\""
+      },
+      "locations": [
+       {
+        "physicalLocation": {
+         "artifactLocation": {
+          "uri": "fr.json"
+         },
+         "region": {
+          "startLine": 1
+         }
+        }
+       }
+      ]
+     },
+     {
+      "ruleId": "missing-key",
+      "level": "error",
+      "message": {
+       "text": "[fr] missing translation for key \"b\""
+      },
+      "locations": [
+       {
+        "physicalLocation": {
+         "artifactLocation": {
+          "uri": "fr.json"
+         },
+         "region": {
+          "startLine": 1
+         }
+        }
+       }
+      ]
+     },
+     {
+      "ruleId": "missing-key",
+      "level": "error",
+      "message": {
+       "text": "[fr] missing translation for key \"c\""
+      },
+      "locations": [
+       {
+        "physicalLocation": {
+         "artifactLocation": {
+          "uri": "fr.json"
+         },
+         "region": {
+          "startLine": 1
+         }
+        }
+       }
+      ]
+     },
+     {
+      "ruleId": "extra-key",
+      "level": "note",
+      "message": {
+       "text": "[de] key \"z\" is not in the source file"
+      },
+      "locations": [
+       {
+        "physicalLocation": {
+         "artifactLocation": {
+          "uri": "de.json"
+         },
+         "region": {
+          "startLine": 4
+         }
+        }
+       }
+      ]
+     },
+     {
+      "ruleId": "placeholder",
+      "level": "error",
+      "message": {
+       "text": "[de] a: placeholder mismatch"
+      },
+      "locations": [
+       {
+        "physicalLocation": {
+         "artifactLocation": {
+          "uri": "de.json"
+         },
+         "region": {
+          "startLine": 2
+         }
+        }
+       }
+      ]
+     },
+     {
+      "ruleId": "translation-fault",
+      "level": "error",
+      "message": {
+       "text": "[de] a: lost placeholder {n}"
+      },
+      "locations": [
+       {
+        "physicalLocation": {
+         "artifactLocation": {
+          "uri": "de.json"
+         },
+         "region": {
+          "startLine": 2
+         }
+        }
+       }
+      ]
+     },
+     {
+      "ruleId": "translation-fault",
+      "level": "error",
+      "message": {
+       "text": "[de] a: invented placeholder {m} (not in source)"
+      },
+      "locations": [
+       {
+        "physicalLocation": {
+         "artifactLocation": {
+          "uri": "de.json"
+         },
+         "region": {
+          "startLine": 2
+         }
+        }
+       }
+      ]
+     },
+     {
+      "ruleId": "missing-key",
+      "level": "error",
+      "message": {
+       "text": "[fr] no locale file found for this language"
+      },
+      "locations": [
+       {
+        "physicalLocation": {
+         "artifactLocation": {
+          "uri": "en.json"
+         },
+         "region": {
+          "startLine": 1
+         }
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

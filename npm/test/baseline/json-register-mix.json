@@ -1,0 +1,27 @@
+{
+ "json": {
+  "code": 0,
+  "stdout": {
+   "ok": true,
+   "missing": {},
+   "extra": {},
+   "placeholder_issues": [],
+   "missing_files": [],
+   "faults": [],
+   "warnings": [
+    {
+     "lang": "de",
+     "msg": "file mixes informal and formal address (3 informal vs 2 formal markers) — pick one register",
+     "severity": "warn"
+    }
+   ]
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 0,
+  "stdout": "",
+  "stderr": "! de: 1 warning(s):\n    : file mixes informal and formal address (3 informal vs 2 formal markers) — pick one register\n! 1 warning(s) — non-blocking (use --strict to fail on them)\n"
+ },
+ "sarif": null
+}

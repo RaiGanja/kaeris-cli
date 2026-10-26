@@ -1,0 +1,8 @@
+{
+ "args": [
+  "--source",
+  "en.po",
+  "--langs",
+  "de"
+ ]
+}

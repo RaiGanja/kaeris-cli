@@ -1,0 +1,8 @@
+{
+ "args": [
+  "--source",
+  "en.lproj/L.strings",
+  "--langs",
+  "de"
+ ]
+}

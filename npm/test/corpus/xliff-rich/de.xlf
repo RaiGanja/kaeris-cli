@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2" xmlns:x="urn:x">
+<file original="a" source-language="en" datatype="plaintext">
+<body>
+<trans-unit id="a"><source>Hello</source><target>Hallo <g id="1">fett</g> <x id="2"/></target></trans-unit>
+<trans-unit id="b"><source>Save</source><target state="needs-translation">Speichern</target></trans-unit>
+<trans-unit id="c"><source>Third {n}</source><target>Dritte {m}</target></trans-unit>
+<trans-unit id="d"><source>Fourth</source><target x:state="y">Vierte</target></trans-unit>
+</body>
+</file>
+</xliff>

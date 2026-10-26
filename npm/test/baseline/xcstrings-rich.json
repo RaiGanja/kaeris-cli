@@ -1,0 +1,61 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": false,
+   "missing": {
+    "de": [
+     "bare key",
+     "sub",
+     "sub⟦sub:n⟧⟦plural⟧"
+    ],
+    "fr": [
+     "bare key",
+     "device⟦device:iphone⟧",
+     "device⟦device:mac⟧",
+     "sub",
+     "sub⟦sub:n⟧⟦plural⟧"
+    ],
+    "es": [
+     "bare key",
+     "device⟦device:iphone⟧",
+     "device⟦device:mac⟧",
+     "files⟦plural⟧",
+     "greeting",
+     "sub",
+     "sub⟦sub:n⟧⟦plural⟧"
+    ]
+   },
+   "extra": {},
+   "placeholder_issues": [
+    {
+     "lang": "fr",
+     "key": "greeting",
+     "missing": [
+      "%@"
+     ],
+     "added": []
+    }
+   ],
+   "missing_files": [
+    "es"
+   ],
+   "faults": [
+    {
+     "lang": "fr",
+     "key": "greeting",
+     "msg": "lost placeholder %@",
+     "severity": "error"
+    }
+   ],
+   "warnings": []
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "✗ de: 3 missing key(s): bare key, sub, sub (sub n, plural)\n✗ fr: 5 missing key(s): bare key, device (device iphone), device (device mac), sub, sub (sub n, plural)\n✗ fr: 1 placeholder mismatch(es):\n    greeting: missing ['%@'], added -\n✗ fr: 1 translation fault(s):\n    greeting: lost placeholder %@\n✗ es: no translations in L.xcstrings\n✗ 15 missing keys, 1 placeholder mismatch, 1 translation fault\n"
+ },
+ "sarif": null
+}

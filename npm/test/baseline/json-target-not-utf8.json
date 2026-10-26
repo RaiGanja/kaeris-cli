@@ -1,0 +1,13 @@
+{
+ "json": {
+  "code": 2,
+  "stdout": null,
+  "stderr": "✗ de: could not parse de.json: byte 0xE9 at offset 10 is not valid UTF-8 — save it as UTF-8 (or UTF-16 with a byte-order mark)\n"
+ },
+ "human": {
+  "code": 2,
+  "stdout": "",
+  "stderr": "✗ de: could not parse de.json: byte 0xE9 at offset 10 is not valid UTF-8 — save it as UTF-8 (or UTF-16 with a byte-order mark)\n"
+ },
+ "sarif": null
+}

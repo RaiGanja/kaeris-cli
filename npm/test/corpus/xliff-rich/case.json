@@ -1,0 +1,8 @@
+{
+ "args": [
+  "--source",
+  "en.xlf",
+  "--langs",
+  "de"
+ ]
+}

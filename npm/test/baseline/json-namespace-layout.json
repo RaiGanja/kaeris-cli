@@ -1,0 +1,37 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": false,
+   "missing": {},
+   "extra": {},
+   "placeholder_issues": [
+    {
+     "lang": "fr",
+     "key": "a",
+     "missing": [
+      "{n}"
+     ],
+     "added": []
+    }
+   ],
+   "missing_files": [],
+   "faults": [
+    {
+     "lang": "fr",
+     "key": "a",
+     "msg": "lost placeholder {n}",
+     "severity": "error"
+    }
+   ],
+   "warnings": []
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "✓ de: complete & placeholder-safe\n✗ fr: 1 placeholder mismatch(es):\n    a: missing ['{n}'], added -\n✗ fr: 1 translation fault(s):\n    a: lost placeholder {n}\n✗ 1 placeholder mismatch, 1 translation fault\n"
+ },
+ "sarif": null
+}

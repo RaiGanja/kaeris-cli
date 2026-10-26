@@ -1,0 +1,13 @@
+{
+ "json": {
+  "code": 2,
+  "stdout": null,
+  "stderr": "✗ Invalid source file en.json: expected a JSON object\n"
+ },
+ "human": {
+  "code": 2,
+  "stdout": "",
+  "stderr": "✗ Invalid source file en.json: expected a JSON object\n"
+ },
+ "sarif": null
+}

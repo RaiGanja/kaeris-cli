@@ -1,0 +1,8 @@
+{
+ "args": [
+  "--source",
+  "translations.csv",
+  "--langs",
+  "de"
+ ]
+}

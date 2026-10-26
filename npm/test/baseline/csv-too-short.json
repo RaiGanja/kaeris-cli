@@ -1,0 +1,13 @@
+{
+ "json": {
+  "code": 2,
+  "stdout": null,
+  "stderr": "✗ Could not read source file t.csv: a CSV needs a header row and a key column + a source-text column\n"
+ },
+ "human": {
+  "code": 2,
+  "stdout": "",
+  "stderr": "✗ Could not read source file t.csv: a CSV needs a header row and a key column + a source-text column\n"
+ },
+ "sarif": null
+}

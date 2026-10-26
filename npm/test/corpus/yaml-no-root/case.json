@@ -1,0 +1,8 @@
+{
+ "args": [
+  "--source",
+  "en.yaml",
+  "--langs",
+  "de"
+ ]
+}

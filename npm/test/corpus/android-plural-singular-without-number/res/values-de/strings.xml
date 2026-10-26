@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <plurals name="files">
+        <item quantity="one">Eine Datei</item>
+        <item quantity="other">%d Dateien</item>
+    </plurals>
+</resources>

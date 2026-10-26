@@ -1,0 +1,13 @@
+{
+ "json": {
+  "code": 2,
+  "stdout": null,
+  "stderr": "✗ Could not read source file en.json: Expecting value: line 1 column 1 (char 0)\n"
+ },
+ "human": {
+  "code": 2,
+  "stdout": "",
+  "stderr": "✗ Could not read source file en.json: Expecting value: line 1 column 1 (char 0)\n"
+ },
+ "sarif": null
+}

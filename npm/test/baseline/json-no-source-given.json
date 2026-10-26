@@ -1,0 +1,13 @@
+{
+ "json": {
+  "code": 2,
+  "stdout": null,
+  "stderr": "✗ No source file given (--source PATH, or 'source' in kaeris.json)\n"
+ },
+ "human": {
+  "code": 2,
+  "stdout": "",
+  "stderr": "✗ No source file given (--source PATH, or 'source' in kaeris.json)\n"
+ },
+ "sarif": null
+}

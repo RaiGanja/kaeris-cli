@@ -1,0 +1,37 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": false,
+   "missing": {},
+   "extra": {},
+   "placeholder_issues": [
+    {
+     "lang": "de",
+     "key": "a",
+     "missing": [
+      "%@"
+     ],
+     "added": []
+    }
+   ],
+   "missing_files": [],
+   "faults": [
+    {
+     "lang": "de",
+     "key": "a",
+     "msg": "lost placeholder %@",
+     "severity": "error"
+    }
+   ],
+   "warnings": []
+  },
+  "stderr": "! Could not detect a known locale-file layout for 'en.lproj/L.strings' (source_lang='en') — nesting output by language instead\n"
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "! Could not detect a known locale-file layout for 'en.lproj/L.strings' (source_lang='en') — nesting output by language instead\n✗ de: 1 placeholder mismatch(es):\n    a: missing ['%@'], added -\n✗ de: 1 translation fault(s):\n    a: lost placeholder %@\n✗ 1 placeholder mismatch, 1 translation fault\n"
+ },
+ "sarif": null
+}

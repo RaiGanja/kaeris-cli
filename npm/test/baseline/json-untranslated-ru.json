@@ -1,0 +1,34 @@
+{
+ "json": {
+  "code": 0,
+  "stdout": {
+   "ok": true,
+   "missing": {},
+   "extra": {},
+   "placeholder_issues": [],
+   "missing_files": [],
+   "faults": [],
+   "warnings": [
+    {
+     "lang": "ru",
+     "key": "a",
+     "msg": "may be untranslated — no target-language script, still reads as source text",
+     "severity": "warn"
+    },
+    {
+     "lang": "ru",
+     "key": "c",
+     "msg": "may be untranslated — no target-language script, still reads as source text",
+     "severity": "warn"
+    }
+   ]
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 0,
+  "stdout": "",
+  "stderr": "! ru: 2 warning(s):\n    a: may be untranslated — no target-language script, still reads as source text\n    c: may be untranslated — no target-language script, still reads as source text\n! 2 warning(s) — non-blocking (use --strict to fail on them)\n"
+ },
+ "sarif": null
+}

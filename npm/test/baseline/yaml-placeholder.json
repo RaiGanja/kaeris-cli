@@ -1,0 +1,45 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": false,
+   "missing": {},
+   "extra": {},
+   "placeholder_issues": [
+    {
+     "lang": "de",
+     "key": "greeting",
+     "missing": [
+      "{name}"
+     ],
+     "added": [
+      "{nom}"
+     ]
+    }
+   ],
+   "missing_files": [],
+   "faults": [
+    {
+     "lang": "de",
+     "key": "greeting",
+     "msg": "lost placeholder %{name}",
+     "severity": "error"
+    },
+    {
+     "lang": "de",
+     "key": "greeting",
+     "msg": "invented placeholder %{nom} (not in source)",
+     "severity": "error"
+    }
+   ],
+   "warnings": []
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "✗ de: 1 placeholder mismatch(es):\n    greeting: missing ['{name}'], added ['{nom}']\n✗ de: 2 translation fault(s):\n    greeting: lost placeholder %{name}\n    greeting: invented placeholder %{nom} (not in source)\n✗ 1 placeholder mismatch, 2 translation faults\n"
+ },
+ "sarif": null
+}

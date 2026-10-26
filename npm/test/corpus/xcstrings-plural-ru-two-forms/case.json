@@ -1,0 +1,8 @@
+{
+ "args": [
+  "--source",
+  "L.xcstrings",
+  "--langs",
+  "ru"
+ ]
+}

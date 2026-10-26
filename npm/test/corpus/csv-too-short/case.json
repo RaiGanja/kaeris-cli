@@ -1,0 +1,8 @@
+{
+ "args": [
+  "--source",
+  "t.csv",
+  "--langs",
+  "de"
+ ]
+}

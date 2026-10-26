@@ -1,0 +1,43 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": false,
+   "missing": {},
+   "extra": {},
+   "placeholder_issues": [
+    {
+     "lang": "fr",
+     "key": "a",
+     "missing": [
+      "{name}"
+     ],
+     "added": []
+    }
+   ],
+   "missing_files": [],
+   "faults": [
+    {
+     "lang": "de",
+     "key": "b",
+     "msg": "glossary term dropped: KAERIS",
+     "severity": "error"
+    },
+    {
+     "lang": "fr",
+     "key": "a",
+     "msg": "lost placeholder {name}",
+     "severity": "error"
+    }
+   ],
+   "warnings": []
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "→ Using config: kaeris.json\n✗ de: 1 translation fault(s):\n    b: glossary term dropped: KAERIS\n✗ fr: 1 placeholder mismatch(es):\n    a: missing ['{name}'], added -\n✗ fr: 1 translation fault(s):\n    a: lost placeholder {name}\n✗ 1 placeholder mismatch, 2 translation faults\n"
+ },
+ "sarif": null
+}

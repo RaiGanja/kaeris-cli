@@ -1,0 +1,32 @@
+{
+ "json": {
+  "code": 0,
+  "stdout": {
+   "ok": true,
+   "missing": {},
+   "extra": {},
+   "placeholder_issues": [],
+   "missing_files": [],
+   "faults": [],
+   "warnings": [
+    {
+     "lang": "de",
+     "msg": "go: translation +26 characters vs source — may overflow UI",
+     "severity": "warn"
+    },
+    {
+     "lang": "de",
+     "msg": "label: translation +164% vs source (typical +35%) — may overflow UI",
+     "severity": "warn"
+    }
+   ]
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 0,
+  "stdout": "",
+  "stderr": "! de: 2 warning(s):\n    : go: translation +26 characters vs source — may overflow UI\n    : label: translation +164% vs source (typical +35%) — may overflow UI\n! 2 warning(s) — non-blocking (use --strict to fail on them)\n"
+ },
+ "sarif": null
+}

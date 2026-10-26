@@ -1,0 +1,34 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": false,
+   "missing": {},
+   "extra": {},
+   "placeholder_issues": [],
+   "missing_files": [],
+   "faults": [
+    {
+     "lang": "ru",
+     "key": "n",
+     "msg": "ICU plural is missing the few/many form(s) ru requires",
+     "severity": "error"
+    },
+    {
+     "lang": "ru",
+     "key": "n",
+     "msg": "ICU exact-match branch =0 {…} was dropped in the translation",
+     "severity": "error"
+    }
+   ],
+   "warnings": []
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "✗ ru: 2 translation fault(s):\n    n: ICU plural is missing the few/many form(s) ru requires\n    n: ICU exact-match branch =0 {…} was dropped in the translation\n✗ 2 translation faults\n"
+ },
+ "sarif": null
+}

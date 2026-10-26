@@ -1,0 +1,28 @@
+de:
+  title: Meine App
+  empty:
+  yes_value: ja
+  num: 12
+  date: 2024-02-29
+  bad_date: 2024-13-45
+  quoted: "Hallo, %{nom}"
+  single: 'Es ist {n}'
+  multi: |
+    Zeile eins
+    Zeile zwei
+  folded: >
+    gefalteter
+    Text
+  list:
+    - Eins
+    - Zwei
+    - key: verschachtelt
+  flow: [a, 'b c', 3]
+  map: {k: v, z: 'y'}
+  long: erste
+    weiter
+  dq: "zeile eins
+    zeile zwei"
+  hex: 0x1F
+  inf: .inf
+  time: 12:30

@@ -1,0 +1,5 @@
+de:
+  greeting: "Hallo, %{nom}"
+  save: Änderungen speichern
+  cart:
+    items: "Sie haben {count} Artikel"

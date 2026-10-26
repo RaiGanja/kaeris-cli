@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <plurals name="files">
+        <item quantity="one">%1$s sent %2$d file</item>
+        <item quantity="other">%1$s sent %2$d files</item>
+    </plurals>
+</resources>

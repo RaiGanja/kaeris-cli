@@ -1,0 +1,30 @@
+{
+  "app": {
+    "title": "Meine App",
+    "greeting": "Hallo, {name}!",
+    "items": "Sie haben {count, plural, one {# Element} other {# Elemente}}"
+  },
+  "buttons": [
+    "Speichern",
+    "Abbrechen",
+    "Lösche {n} Dateien"
+  ],
+  "price": "Nur 9,99 $ heute",
+  "percent": "100% sicher",
+  "dollar": "Summe: ${total}",
+  "rails": "Hallo %{user}",
+  "printf": "%1$s sendete %2$d Nachrichten",
+  "ios": "Öffne %@",
+  "vue": "Willkommen {{ user.name }}",
+  "ref": "Siehe $t(app.title)",
+  "version": "Version 2.4.1",
+  "tag": "Klicke <b>hier</b> oder <a href=\"/x\">dort</a>",
+  "flag": true,
+  "count": 42,
+  "empty": "",
+  "nothing": null,
+  "html": "A &amp; B",
+  "multi": "Zeile eins\nZeile zwei",
+  "_service": "intern",
+  "emph": "Das ist *wichtig* jetzt"
+}
