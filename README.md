@@ -341,6 +341,8 @@ Anything not passed falls back to `kaeris.json`, then to the built-in default.
 | `--verify` | back-translation and meaning check for your review; prints `⚠ meaning:` lines and writes `verify.json` |
 | `--back-lang en` | language to back-translate into with `--verify` |
 | `--translate-service-keys` | also translate keys that start with `_` (`"_status"`); by default they are copied through untouched in JSON, YAML and ARB |
+| `--digits native\|latin` | digits in the result: `native` (default) keeps what the language writes (fa ۲۰۲۷, bn ২০২৭), `latin` rewrites them to 0-9; placeholders are left as they are |
+| `--lang-case keep\|lower` | case of the language code in new file and folder names (`zh-Hant.json` or `zh-hant.json`); a file or folder that already exists in another case is always written under its own name |
 | `--jobs N` | jobs kept running at once (default 4): several files side by side, and with `--only-new` the languages of one file; results are still written and reported in order. `--jobs 1` sends one at a time |
 | `--quiet` | no progress output |
 | `--receipt PATH` | write a JSON record of the run — counts and settings only, no strings |

@@ -79,3 +79,49 @@ def test_other_errors_are_not_retried(waits):
     finally:
         srv.shutdown()
     assert hits == [402] and waits == []
+
+
+def _receipt_server(codes):
+    hits = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            code = codes[min(len(hits), len(codes) - 1)]
+            hits.append(code)
+            body = json.dumps({"job_id": "j1", "seconds": 1} if code == 200 else
+                              {"detail": "The run has not finished yet — no receipt to show."}
+                              ).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv = socketserver.TCPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, srv.server_address[1], hits
+
+
+def test_a_receipt_asked_for_a_moment_too_early_is_asked_again(waits):
+    """The server marks a job done a moment before its receipt is written. With jobs side by
+    side the CLI asked inside that moment and 2 of 3 files printed no "Run:" line at all
+    (measured 26.10.2026); asked again a second later, both answered."""
+    srv, port, hits = _receipt_server([409, 409, 200])
+    try:
+        rec = KaerisClient(api_url=f"http://127.0.0.1:{port}").receipt("j1")
+    finally:
+        srv.shutdown()
+    assert rec["job_id"] == "j1" and hits == [409, 409, 200]
+
+
+def test_a_receipt_that_never_comes_gives_up(waits):
+    srv, port, hits = _receipt_server([409])
+    try:
+        with pytest.raises(KaerisError, match="409"):
+            KaerisClient(api_url=f"http://127.0.0.1:{port}").receipt("j1")
+    finally:
+        srv.shutdown()
+    assert sum(waits) <= 15

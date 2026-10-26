@@ -165,6 +165,7 @@ def _urlopen(req, timeout):
 # A 429 on submit is retried this many times, never waiting longer than MAX_RETRY_WAIT seconds
 # at a time: the per-minute limits reset within a minute.
 SUBMIT_RETRIES = 3
+RECEIPT_RETRIES = 10
 MAX_RETRY_WAIT = 60
 
 
@@ -207,7 +208,9 @@ class KaerisClient:
             with _urlopen(req, timeout=self.timeout) as r:
                 return r.read()
         except urllib.error.HTTPError as e:
-            raise KaerisError(self._err_message(e))
+            error = KaerisError(self._err_message(e))
+            error.code = e.code
+            raise error
         except urllib.error.URLError as e:
             raise KaerisError(f"Cannot reach {self.api_url}: {e.reason}")
 
@@ -411,7 +414,15 @@ class KaerisClient:
             token = (getattr(self, "_edit_tokens", {}).get(job_id)
                      or getattr(self, "last_edit_token", ""))
         headers = {"X-Job-Token": token} if token else None
-        return json.loads(self._get(f"/api/receipt/{job_id}", headers).decode())
+        # The server marks a job done a moment before it writes the receipt (409 meanwhile).
+        # With several jobs in flight the CLI asks inside that moment often enough to matter.
+        for attempt in range(RECEIPT_RETRIES + 1):
+            try:
+                return json.loads(self._get(f"/api/receipt/{job_id}", headers).decode())
+            except KaerisError as e:
+                if getattr(e, "code", None) != 409 or attempt == RECEIPT_RETRIES:
+                    raise
+                time.sleep(1)
 
     def preview(self, job_id):
         """Fetch the translation QA report: keys _warnings (lost placeholders per lang),

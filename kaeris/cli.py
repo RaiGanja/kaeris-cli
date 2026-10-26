@@ -17,6 +17,7 @@ from . import check as chk
 from . import xcstrings as xc
 from . import tm as tmem
 from . import detectors as det
+from . import digits as dg
 
 CONFIG_FILENAME = "kaeris.json"
 
@@ -387,6 +388,42 @@ def _target_path(src_path, lang, out_dir, source_lang):
 _target_path.warned = False
 
 
+LANG_CASES = ("keep", "lower")
+
+
+def _existing_case(path, lang):
+    """`path`, with each part that names `lang` spelled the way it already is on disk. The
+    server names its files after the language code as the API spells it (`zh-Hant.json`,
+    `devlog/zh-Hant/`); a project that already has `zh-hant.json` got a second file beside it
+    on Linux, and its own file renamed on Windows (client report, 0.2.31). Only the parts that
+    carry the language are looked at, and an exact match always wins, so two files that differ
+    only in case are never confused and nobody's other folders change."""
+    drive, rest = os.path.splitdrive(os.path.normpath(path))
+    parts = rest.split(os.sep)
+    want = lang.lower()
+    for i, part in enumerate(parts):
+        if not part or want not in part.lower():
+            continue
+        parent = drive + (os.sep.join(parts[:i]) or (os.sep if rest.startswith(os.sep) else "."))
+        try:
+            names = os.listdir(parent)
+        except OSError:
+            break                      # nothing below a folder that does not exist yet
+        if part in names:
+            continue
+        same = [n for n in names if n.lower() == part.lower()]
+        if len(same) == 1:
+            parts[i] = same[0]
+    return drive + os.sep.join(parts)
+
+
+def _out_path(src_path, lang, out_dir, source_lang, lang_case="keep"):
+    """Where `lang`'s translation of `src_path` goes: _target_path, in the project's own case."""
+    if lang_case == "lower":
+        lang = lang.lower()
+    return _existing_case(_target_path(src_path, lang, out_dir, source_lang), lang)
+
+
 def cmd_init(args):
     if os.path.isfile(CONFIG_FILENAME) and not args.force:
         warn(f"{CONFIG_FILENAME} already exists — use --force to overwrite")
@@ -502,7 +539,7 @@ def cmd_check(args):
         # override for non-standard layouts.
         if args.pattern:
             return os.path.join(out_dir, args.pattern.format(lang=lang))
-        return _target_path(path, lang, out_dir, source_lang)
+        return _out_path(path, lang, out_dir, source_lang)
 
     # A String Catalog holds the source AND every translation in one document, so there is
     # no per-language file to resolve — both sides come out of the same parse.
@@ -750,6 +787,10 @@ def cmd_translate(args):
     args.out = args.out or config.get("out")
     args.source_lang = args.source_lang or config.get("source_lang") or "en"
     args.jobs = args.jobs or config.get("jobs")
+    args.digits = args.digits or (config.get("digits") if config.get("digits") in dg.MODES
+                                  else "native")
+    args.lang_case = args.lang_case or (config.get("lang_case")
+                                        if config.get("lang_case") in LANG_CASES else "keep")
 
     if args.out:
         os.makedirs(args.out, exist_ok=True)
@@ -943,7 +984,8 @@ def _finish_one(client, ticket, args):
     if error is not None:
         raise error
     job, status, members = result
-    written = _write_members(members, path, args.out, args.source_lang)
+    written = _write_members(members, path, args.out, args.source_lang,
+                             digits=args.digits, lang_case=args.lang_case)
     # Named from where the files actually went: the source folder was printed here even when
     # every file landed in work/<lang>/ (client report 9).
     dirs = {os.path.dirname(os.path.abspath(w)) for w in written}
@@ -1163,7 +1205,8 @@ def _translate_incremental(client, path, out_dir, langs, args):
     work = []
     pool = ThreadPoolExecutor(max_workers=_jobs(args))
     for lang in langs:
-        target_path = _target_path(path, lang, out_dir, args.source_lang)
+        target_path = _out_path(path, lang, out_dir, args.source_lang,
+                                getattr(args, "lang_case", "keep"))
         os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
         existing = inc.load_json(target_path) if os.path.isfile(target_path) else {}
         existing_flat = inc.flatten(existing) if existing else {}
@@ -1213,6 +1256,8 @@ def _translate_incremental(client, path, out_dir, langs, args):
             continue
         job, status, members = result
         translated = _find_json_member(members, lang)
+        if translated is not None and getattr(args, "digits", "native") == "latin":
+            translated = dg.in_values(translated)
         if translated is None:
             err(f"{lang}: no output returned")
             broken.update(todo)  # not merged — keep these keys stale-locked
@@ -1335,11 +1380,13 @@ def write_atomic(path, data, *, binary=False):
 _MERGED_MEMBER_EXTS = (".xcstrings",)
 
 
-def _write_members(members, src_path, out_dir, source_lang):
+def _write_members(members, src_path, out_dir, source_lang, digits="native", lang_case="keep"):
     """Write each downloaded member (named `<lang><ext>`) to its namespace-mirrored
     target path (see _target_path) instead of a flat out_dir."""
     written = []
     for name, data in members.items():
+        if digits == "latin":
+            data = dg.in_file(data)
         if name.lower().endswith(_MERGED_MEMBER_EXTS):
             # An Xcode String Catalog holds every language at once, so the result belongs
             # where the source is — that is the file Xcode reads and the developer keeps
@@ -1355,7 +1402,7 @@ def _write_members(members, src_path, out_dir, source_lang):
         folder = os.path.basename(os.path.dirname(name.replace("\\", "/")))
         lang = (folder[len("values-"):] if folder.startswith("values-")
                 else os.path.splitext(os.path.basename(name))[0])
-        dest = _target_path(src_path, lang, out_dir, source_lang)
+        dest = _out_path(src_path, lang, out_dir, source_lang, lang_case)
         os.makedirs(os.path.dirname(dest) or out_dir or ".", exist_ok=True)
         write_atomic(dest, data, binary=True)
         written.append(dest)
@@ -1433,6 +1480,15 @@ def build_parser():
     t.add_argument("--translate-service-keys", action="store_true",
                    help="Also translate keys that start with '_' (e.g. \"_status\"). By default "
                         "they are copied through untouched in JSON, YAML and ARB.")
+    t.add_argument("--digits", choices=dg.MODES, default=None,
+                   help="Digits in the result: 'native' (default) keeps what the language writes "
+                        "(fa ۲۰۲۷, bn ২০২৭, hi २०२७), 'latin' rewrites every one to 0-9. "
+                        "Placeholders are left as they are. Also \"digits\" in kaeris.json")
+    t.add_argument("--lang-case", dest="lang_case", choices=LANG_CASES, default=None,
+                   help="Case of the language code in new file and folder names: 'keep' "
+                        "(default, zh-Hant.json) or 'lower' (zh-hant.json). A file or folder "
+                        "that already exists in another case is always written under its own "
+                        "name. Also \"lang_case\" in kaeris.json")
     t.add_argument("--jobs", "-j", type=int, default=None, metavar="N",
                    help=f"How many jobs to keep running on the server at once (default "
                         f"{DEFAULT_JOBS}): files side by side, and with --only-new the "
