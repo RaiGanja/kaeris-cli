@@ -31,6 +31,11 @@ _PH_RE = re.compile(
     r"|%[-+0#]{0,6}\d{0,8}(?:\.\d{1,8})?(?:hh|ll|[hlLzjt])?[sSdiouxXeEfFgGaAcCpn%]"  # printf incl. %.2f %02d %-10s %u %ld
     r"|\$\{[\w\d_]+\}"
     r"|:[A-Za-z]\w*:"   # Rails-ish :name: — must START with a letter so time (10:30:45) and ratios (3:4:5) aren't mis-read as placeholders
+    # References to another string: i18next `$t(nav.cart)`, vue-i18n `@:nav.shop` and
+    # `@.lower:nav.shop`. Translated as text in 31 and 27 of 45 languages on 26.10.2026 (N5):
+    # the link to the other string was gone and nothing said so.
+    r"|\$t\([^()\n]{1,200}\)"
+    r"|@(?:\.[a-z]{1,20})?:[A-Za-z_][\w-]{0,100}(?:\.[\w-]{1,100}){0,10}"
 )
 
 # A simple {var} that became an ICU head {var, plural|select|selectordinal, …}. Captures the
