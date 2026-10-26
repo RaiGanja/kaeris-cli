@@ -464,6 +464,34 @@ def _lost_tags(original: str, translated: str) -> list[str]:
 _EMPHASIS_RE = re.compile(r"(?<![*\\])(\*{1,2})(?=[^\s*])([^*\n]+?)(?<=[^\s*\\])\1(?!\*)")
 
 
+def _emphasis_counts(text: str) -> tuple[int, int]:
+    """Intact `*emphasis*`: as written, and with one phrase cut by a line break counted once.
+    `*港の*` + break + `*メモ*` is what _mend_emphasis_breaks makes of an emphasis that wrapped
+    the break, so that Markdown renders it: the author's one emphasis, not a second one."""
+    spans = list(_EMPHASIS_RE.finditer(text))
+    joints = sum(1 for a, b in zip(spans, spans[1:])
+                 if a.group(1) == b.group(1) and "\n" in text[a.end():b.start()]
+                 and not text[a.end():b.start()].strip())
+    return len(spans), len(spans) - joints
+
+
+def _stray_markers(text: str) -> list[tuple[int, str]]:
+    """`*` and `**` that open or close nothing: what is left of an emphasis the translation
+    tore (`সাথে*`). A list bullet (`* item`) and a lone ` * ` between spaces are not markers."""
+    covered = [m.span() for m in _EMPHASIS_RE.finditer(text)]
+    out = []
+    for m in re.finditer(r"(?<![*\\])\*{1,2}(?!\*)", text):
+        s, e = m.span()
+        if any(a <= s < b for a, b in covered):
+            continue
+        before = text[s - 1] if s else "\n"
+        after = text[e] if e < len(text) else "\n"
+        if before.isspace() and after.isspace():
+            continue
+        out.append((s, m.group(0)))
+    return out
+
+
 def _line_break_faults(original: str, translated: str, soft_breaks: bool = False) -> list[str]:
     """A line break lost, added or moved to an edge, and `*emphasis*` that no longer wraps text.
     `soft_breaks`: Markdown paragraphs, where a re-wrapped line is not a change."""
@@ -474,8 +502,12 @@ def _line_break_faults(original: str, translated: str, soft_breaks: bool = False
     elif n_src and (original.startswith("\n") != translated.startswith("\n")
                     or original.endswith("\n") != translated.endswith("\n")):
         out.append("a line break moved to the start or end of the translation")
-    src_em, tr_em = len(_EMPHASIS_RE.findall(original)), len(_EMPHASIS_RE.findall(translated))
-    if tr_em < src_em:
+    (src_em, src_one), (tr_em, tr_one) = _emphasis_counts(original), _emphasis_counts(translated)
+    if {src_em, src_one} & {tr_em, tr_one}:
+        if len(_stray_markers(translated)) > len(_stray_markers(original)):
+            # Every emphasis intact and one `*` more: the page prints the asterisk (bn, 0.2.32).
+            out.append("emphasis *…* broken: a stray * the source does not have")
+    elif tr_em < src_em:
         out.append(f"emphasis *…* broken: {src_em} in the source, {tr_em} intact in the "
                    "translation")
     elif tr_em > src_em:
@@ -483,6 +515,173 @@ def _line_break_faults(original: str, translated: str, soft_breaks: bool = False
         # renders a second bold word the page did not ask for (customer re-run, ja, zh-Hant).
         out.append(f"emphasis *…* added: {src_em} in the source, {tr_em} in the translation")
     return out
+
+
+# Where a line may break in a language written without spaces: after punctuation, and in
+# Japanese after a particle — 港の｜メモ, not 港｜のメモ.
+_CJK_BREAK_AFTER = "、，。：；！？）」』"
+_JA_PARTICLES = "のをにはがでとへもや"
+# …and never after a numeral or a demonstrative, which belong to the word after them: 一｜個.
+_CJK_BINDS_NEXT = "一二三四五六七八九十百千萬万兩两幾几這这那每各某"
+_NO_SPACE_RE = re.compile(r"[぀-ヿ㐀-鿿豈-﫿฀-๿]")
+
+
+def _protected_spans(text: str) -> list[tuple[int, int]]:
+    """Placeholders, tags and emphasis: a line break inside any of them breaks the string."""
+    spans = list(_brace_spans(text))
+    spans += [m.span() for m in _PH_RE.finditer(text)]
+    spans += [m.span() for m in _TAG_RE.finditer(text)]
+    spans += [m.span() for m in _EMPHASIS_RE.finditer(text)]
+    return spans
+
+
+def _break_candidates(text: str) -> list[tuple[int, int, float]]:
+    """(start, end, penalty): text[start:end] may be replaced by a line break."""
+    protected = _protected_spans(text)
+    inside = lambda i: any(a < i < b for a, b in protected)
+    out = []
+    for m in re.finditer(r"[ \t]+", text):
+        if not inside(m.start()) and 0 < m.start() and m.end() < len(text):
+            out.append((m.start(), m.end(), 0.0))
+    if out or not _NO_SPACE_RE.search(text):
+        return out
+    for i in range(1, len(text)):
+        prev, nxt = text[i - 1], text[i]
+        if (inside(i) or nxt in _CJK_BREAK_AFTER or prev in _CJK_BINDS_NEXT
+                or not _NO_SPACE_RE.search(prev + nxt)):
+            continue
+        if prev in _CJK_BREAK_AFTER or (prev in _JA_PARTICLES and _NO_SPACE_RE.match(nxt)):
+            out.append((i, i, 0.02))
+        elif prev == "*" or nxt == "*":
+            out.append((i, i, 0.05))          # at the edge of an emphasis, not inside it
+        else:
+            out.append((i, i, 0.15))
+    return out
+
+
+def _place_line_breaks(original: str, translated: str) -> str:
+    """The source's line breaks, as many as it has, put back where they fall in proportion.
+
+    Asked again, the model returned the same number of breaks it had lost (live, 26.10.2026:
+    hi, ja, fa, et kept one break of two). A title broken over lines is a layout the author
+    chose, and the count is what the template relies on; the place is measured: each break
+    goes to the gap nearest its share of the source, between words, never inside a
+    placeholder, a tag or an emphasis. Breaks the translation already has stay where they
+    are. Returns the translation unchanged when nothing fits."""
+    if (not isinstance(original, str) or not isinstance(translated, str)
+            or original[:1] == "\n" or original[-1:] == "\n"):
+        return translated
+    n = original.count("\n")
+    body = translated.strip("\n")
+    if n == body.count("\n") and body == translated:
+        return translated
+    plain = original.replace("*", "")
+    shares, at = [], 0
+    for line in plain.split("\n")[:-1]:
+        at += len(line) + 1
+        shares.append(at / max(len(plain), 1))
+    joined = re.sub(r"[ \t]*\n[ \t]*", lambda m: "\n", body)
+    have = [(m.start(), m.end(), -1.0) for m in re.finditer("\n", joined)]
+    if n == 0:                                  # the source has none: join the lines again
+        return re.sub("\n", lambda m: "" if _NO_SPACE_RE.search(
+            joined[max(m.start() - 1, 0):m.end() + 1]) else " ", joined)
+    if len(have) > n:
+        cands, must = have, False
+    else:
+        cands, must = sorted(have + _break_candidates(joined)), True
+    if len(cands) < n:
+        return translated
+    size = max(len(joined), 1)
+
+    def cost(c, share):
+        return abs(c[0] / size - share) + max(c[2], 0.0)
+
+    def skips_kept(a, b):                       # a break the translation has, passed over
+        return must and any(cands[k][2] < 0 for k in range(a + 1, b))
+
+    # best[i][j]: the cheapest way to place breaks 0..j with break j at candidate i.
+    inf = float("inf")
+    best = [[inf] * n for _ in cands]
+    back = [[-1] * n for _ in cands]
+    for i, c in enumerate(cands):
+        if not skips_kept(-1, i):
+            best[i][0] = cost(c, shares[0])
+        for j in range(1, n):
+            for p in range(i):
+                if best[p][j - 1] == inf or c[0] - cands[p][1] < 1 or skips_kept(p, i):
+                    continue
+                total = best[p][j - 1] + cost(c, shares[j])
+                if total < best[i][j]:
+                    best[i][j], back[i][j] = total, p
+    ends = [i for i in range(len(cands)) if best[i][n - 1] < inf and not skips_kept(i, len(cands))]
+    if not ends:
+        return translated
+    i = min(ends, key=lambda i: best[i][n - 1])
+    chosen = set()
+    for j in range(n - 1, -1, -1):
+        chosen.add(cands[i][:2])
+        i = back[i][j]
+    out, last = [], 0
+    for s, e in sorted(chosen | {h[:2] for h in have}):
+        if (s, e) in chosen:
+            out.append(joined[last:s] + "\n")
+        else:                                   # a break the source does not have
+            out.append(joined[last:s] + ("" if _NO_SPACE_RE.search(joined[s - 1:e + 1]) else " "))
+        last = e
+    out.append(joined[last:])
+    return re.sub(r"[ \t]*\n[ \t]*", "\n", "".join(out))
+
+
+def _pair_stray_markers(original: str, translated: str) -> str:
+    """Close a torn emphasis around the word it still touches: `সাথে*` → `*সাথে*`.
+
+    Which word the author emphasised is the one the model left the marker on; a marker that
+    touches no word is dropped. Only when the source has more intact emphasis than the
+    translation, or has no stray marker of its own."""
+    if max(_emphasis_counts(translated)) >= min(_emphasis_counts(original)) and \
+            len(_stray_markers(translated)) <= len(_stray_markers(original)):
+        return translated
+    text = translated
+    for s, mark in reversed(_stray_markers(translated)):
+        e = s + len(mark)
+        before = text[s - 1] if s else " "
+        after = text[e] if e < len(text) else " "
+        if not before.isspace() and (after.isspace() or not after.isalnum()):
+            start = s                            # closes a word: open it at the word's start
+            while start > 0 and not text[start - 1].isspace() and text[start - 1] != "*":
+                start -= 1
+            text = text[:start] + mark + text[start:]
+        elif not after.isspace():
+            end = e                              # opens a word: close it at the word's end
+            while end < len(text) and not text[end].isspace() and text[end] != "*":
+                end += 1
+            while end > e + 1 and not text[end - 1].isalnum():
+                end -= 1                         # «word.» → «*word*.»
+            text = text[:end] + mark + text[end:]
+        else:
+            text = text[:s] + text[e:]
+    return text
+
+
+def _mend_structure(original: str, translated: str, soft_breaks: bool = False) -> str:
+    """Line breaks and emphasis put back without a model, kept only if the detectors then
+    find fewer faults and none they did not find before."""
+    if not isinstance(original, str) or not isinstance(translated, str):
+        return translated
+    before = _line_break_faults(original, translated, soft_breaks)
+    if not before:
+        return translated
+    cand = _pair_stray_markers(original, translated)
+    if not soft_breaks:
+        cand = _place_line_breaks(original, cand)
+    kind = lambda faults: {re.sub(r"\d+", "#", f) for f in faults}
+    after = _line_break_faults(original, cand, soft_breaks)
+    if kind(after) - kind(before) or len(after) >= len(before):
+        return translated
+    if _lost_placeholders(original, cand) or _lost_tags(original, cand):
+        return translated
+    return cand
+
 
 def _brace_spans(text: str) -> list[tuple[int, int]]:
     """Balanced top-level {...} spans. Covers both simple named placeholders ({name})
@@ -654,6 +853,23 @@ _LANG_EXPANSION: dict[str, float] = {
 
 _SHORT_LABEL_CHARS = 12     # a label this short is one or two words
 _SHORT_LABEL_GROWTH = 12    # characters it may gain before a tight button is at risk
+# A sentence a layout wraps: a dialog line, a toast, a paragraph. Ends a clause and has words
+# enough to be one — "Saving…" and "Copied." are still labels.
+_WRAPS_RE = re.compile(r"[.!?。！？؟।](?:\s|$)")
+
+
+def _rendered_len(text: str) -> int:
+    """Characters a reader sees. A Hindi vowel sign, a Persian ZWNJ and a Markdown `*` are code
+    points with no place of their own: «सुनते» is five of them and three letters (0.2.32 JSON
+    re-run, 26.10.2026: a quarter of the overflow warnings on hi, bn and fa were this)."""
+    import unicodedata
+    return sum(1 for c in _icu_visible_text(text).replace("*", "")
+               if unicodedata.category(c) not in ("Mn", "Me", "Cf"))
+
+
+def _wraps(text: str) -> bool:
+    """Text the page wraps rather than a label that must fit: several lines, or a sentence."""
+    return "\n" in text.strip() or (len(text.split()) >= 4 and bool(_WRAPS_RE.search(text.strip())))
 
 
 def _compute_overflow(source_flat: dict[str, str], translated_flat: dict[str, str],
@@ -677,7 +893,6 @@ def _compute_overflow(source_flat: dict[str, str], translated_flat: dict[str, st
     # block is markup the user never sees ("{count, plural, one {# Fehler} other {# Fehler}}
     # gefunden" displays as "5 Fehler gefunden" — shorter than the source, yet raw length
     # reads +185%). Applied to both sides, so the comparison stays honest either way.
-    _vis = _icu_visible_text
     # Trigger 18% beyond the language's norm, but never below the original absolute 1.4 floor —
     # a >40% stretch is a real risk for a tight UI in any language.
     threshold = max(1.4, expected * 1.18)
@@ -687,13 +902,15 @@ def _compute_overflow(source_flat: dict[str, str], translated_flat: dict[str, st
         tr = translated_flat.get(k, "")
         if not isinstance(tr, str) or not src:
             continue
-        slen, tlen = len(_vis(src)), len(_vis(tr))
+        slen, tlen = _rendered_len(src), _rendered_len(tr)
         if slen == 0:
             continue
         ratio = tlen / slen
         if tlen - slen <= _SHORT_LABEL_GROWTH:
             continue
-        if prose:
+        # A sentence or a title over several lines in a JSON file is laid out like prose: the
+        # 0.2.32 re-run flagged «Delete this route? This cannot be undone.» at +44%.
+        if prose or _wraps(src):
             if ratio >= max(2.5, threshold):
                 out.append({"key": k, "src": src, "tr": tr,
                             "pct": round((ratio - 1) * 100), "typical": typical_pct})
