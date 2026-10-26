@@ -609,6 +609,10 @@ _LANG_EXPANSION: dict[str, float] = {
 }
 
 
+_SHORT_LABEL_CHARS = 12     # a label this short is one or two words
+_SHORT_LABEL_GROWTH = 12    # characters it may gain before a tight button is at risk
+
+
 def _compute_overflow(source_flat: dict[str, str], translated_flat: dict[str, str],
                       lang: str = "") -> list[dict]:
     """Flag translations likely to overflow UI (short labels that grew a lot). Length is a strong,
@@ -635,6 +639,15 @@ def _compute_overflow(source_flat: dict[str, str], translated_flat: dict[str, st
         if slen == 0:
             continue
         ratio = tlen / slen
+        if slen <= _SHORT_LABEL_CHARS:
+            # X4 (26.10.2026): for one or two words a percentage says nothing — "Play" →
+            # «Воспроизвести» read +225% and is an ordinary word. A button breaks on extra
+            # characters, so a short label is measured in them.
+            if tlen - slen > _SHORT_LABEL_GROWTH:
+                out.append({"key": k, "src": src, "tr": tr,
+                            "pct": round((ratio - 1) * 100), "typical": typical_pct,
+                            "chars": tlen - slen, "short": True})
+            continue
         if slen <= 60 and tlen >= 8 and ratio >= threshold:
             out.append({"key": k, "src": src, "tr": tr,
                         "pct": round((ratio - 1) * 100),
@@ -1089,6 +1102,11 @@ def file_faults(source_flat, translated_flat, lang):
                     "msg": f"inconsistent translation of \"{item['term']}\" across "
                            f"{len(item['keys'])} keys: {', '.join(item['variants'])}"})
     for item in _compute_overflow(source_flat, translated_flat, lang):
+        if item.get("short"):
+            out.append({"severity": WARN,
+                        "msg": f"{item['key']}: translation +{item['chars']} characters vs "
+                               f"source — may overflow UI"})
+            continue
         out.append({"severity": WARN,
                     "msg": f"{item['key']}: translation +{item['pct']}% vs source "
                            f"(typical +{item['typical']}%) — may overflow UI"})

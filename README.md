@@ -8,7 +8,7 @@ locally or in CI/CD. Format-aware, placeholder-safe, and **incremental** (only n
 - **Zero dependencies** — pure Python stdlib, installs in a second
 - **13 formats** — JSON, YAML, `.strings`, Xcode String Catalog `.xcstrings`, Markdown/MDX, `.po`, ARB, Android XML, CSV (Godot/Unity), XLIFF 1.2, Java `.properties`, .NET `.resx`, Mozilla Fluent `.ftl`
 - **Incremental** — `--only-new` translates just the keys you added, merges the rest
-- **Translation QA** — flags dropped placeholders & UI-overflow risk; `--verify` back-translates so you can check the meaning
+- **Translation QA** — flags dropped placeholders & UI-overflow risk; `--verify` is a back-translation and meaning check for your review: it flags lines whose meaning may have changed, with a reason and a suggested fix
 - **`kaeris check`** — an i18n firewall: fails CI if a locale is untranslated or placeholder-broken, no API call
 - **`kaeris quota`** — how much of your monthly volume is left, before a big run rather than after
 - **CI-ready** — GitHub Action included; open a PR with fresh translations on every push
@@ -58,7 +58,7 @@ kaeris translate locales/en.json --langs es,de --keep "KAERIS,GitHub,OpenRouter"
 # ("Bank" the money kind, not the river kind; "Play" the game, not the theatre)
 kaeris translate locales/en.json --langs de,ja --context "a mobile bank for teenagers"
 
-# Translation QA — verify meaning (back-translate) and write verify.json to review
+# Translation QA — back-translation and meaning check for your review (verify.json lists the lines to read)
 kaeris translate locales/en.json --langs de,ja --verify
 
 # List all supported languages
@@ -338,7 +338,7 @@ Anything not passed falls back to `kaeris.json`, then to the built-in default.
 | `--tone neutral\|formal\|casual` | tone of voice |
 | `--icu` / `--no-icu` | hint that strings use ICU MessageFormat, so plurals/select survive |
 | `--source-lang en` | base language code; also detects `locales/<lang>/<namespace>.json` layouts |
-| `--verify` | back-translate and write `verify.json` so you can check the meaning |
+| `--verify` | back-translation and meaning check for your review; prints `⚠ meaning:` lines and writes `verify.json` |
 | `--back-lang en` | language to back-translate into with `--verify` |
 | `--translate-service-keys` | also translate keys that start with `_` (`"_status"`); by default they are copied through untouched in JSON, YAML and ARB |
 | `--quiet` | no progress output |

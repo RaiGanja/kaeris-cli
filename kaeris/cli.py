@@ -772,7 +772,7 @@ def _write_verify(args, files):
         out_dir = args.out or os.getcwd()
     vpath = os.path.join(out_dir, "verify.json")
     write_atomic(vpath, json.dumps(body, ensure_ascii=False, indent=2))
-    ok(f"Verify-meaning back-translations (→ {args.back_lang}) written to {vpath}")
+    ok(f"Back-translations (→ {args.back_lang}) and the lines to review written to {vpath}")
 
 
 def _tm_signature(args, client):
@@ -942,7 +942,8 @@ def _show_qa(client, job, args, path):
             for o in v.get("overflow", []):
                 if shown >= 6:
                     break
-                print(f"    [{lang}] {o['key']}: +{o['pct']}%  \"{o['tr'][:50]}\"", file=sys.stderr)
+                grew = f"+{o['chars']} chars" if o.get("short") else f"+{o['pct']}%"
+                print(f"    [{lang}] {o['key']}: {grew}  \"{o['tr'][:50]}\"", file=sys.stderr)
                 shown += 1
 
     if args.verify:
@@ -1332,7 +1333,9 @@ def build_parser():
                         "The model uses it to pick the right sense of ambiguous strings "
                         f"(max {APP_CONTEXT_LIMIT} chars; default: 'context' in kaeris.json)")
     t.add_argument("--verify", action="store_true",
-                   help="Verify meaning: back-translate results into --back-lang and write verify.json to check accuracy")
+                   help="Back-translation and meaning check for your review: back-translate "
+                        "into --back-lang, flag lines whose meaning may have changed, and "
+                        "write verify.json with the lines to read")
     t.add_argument("--back-lang", default="en",
                    help="Language for --verify back-translation (default: en)")
     t.add_argument("--tone", choices=["neutral", "formal", "casual"], default=None,
