@@ -63,8 +63,8 @@ def choose(entry, lang, glossary=None):
         return None, None, rejected
     if fix == cur:
         return None, None, "the suggested fix is the current translation"
-    return None, None, ("no fix to apply — it needs a new translation of this line (a model "
-                        "call, charged to your quota like any translation)")
+    return None, None, ("no fix suggested — read it yourself; a new translation of the line "
+                        "is a model call, charged to your quota like any translation")
 
 
 def _variants(text):
