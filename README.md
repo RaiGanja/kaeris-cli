@@ -213,6 +213,21 @@ kaeris fix --from locales/verify.json --dry-run  # only say what would change
   translation is named, not re-translated: that would be a model call, charged to your quota
   like any translation. Applying is free and makes no network call.
 - The file keeps its layout, encoding and line endings; running it twice changes nothing.
+- What it did is recorded in `verify.json` for anything that has to read it (a CI step, an
+  agent), so nobody parses the log: `_applied` and `_skipped`, each a list of
+  `{"lang", "key", "how", "why"}`. `how` is `"fix"` (the meaning check's line) or `"structure"`
+  (line breaks / emphasis put back), and null for a skipped line; `why` says what was done or
+  why the line was left alone. `_summary.by_lang` holds `lines` and `to_review` per language.
+  `kaeris fix --json` prints the same on stdout (`applied`, `skipped`, `counts`); `--dry-run`
+  writes nothing, `verify.json` included.
+
+```json
+"_applied": [{"lang": "de", "key": "save", "how": "fix", "why": "suggested fix"}],
+"_skipped": [{"lang": "de", "key": "greet", "how": null,
+              "why": "the suggested fix was not applied: lost placeholder {name}"}],
+"_summary": {"lines": 40, "to_review": 3, "error": 2, "review": 1, "unchecked": 0,
+             "by_lang": {"de": {"lines": 40, "to_review": 3, "error": 2, "review": 1, "unchecked": 0}}}
+```
 
 ## `kaeris check` — the i18n firewall
 
@@ -262,12 +277,33 @@ usage (source not found, no languages given, etc.) — drop it straight into CI:
 - run: kaeris check --source locales/en.json --langs es,fr,de,ja --out locales
 ```
 
-JSON, ARB (its `@`-metadata is ignored) and **Xcode String Catalogs**; more formats land next
-release.
+### Every format `translate` writes
 
-A `.xcstrings` is checked differently because the format is different: the source language and
-every translation live in one file, so there is nothing to open per language — both sides come
-out of the same parse.
+`check` reads the same formats `translate` does — JSON, YAML, `.strings`, `.xcstrings`, `.po`,
+ARB (its `@`-metadata is ignored), Android XML, CSV, XLIFF, `.properties`, `.resx`, Fluent and
+Markdown — and finds each language's file where `translate` writes it (`de.yml`, `app_de.arb`,
+`res/values-de/strings.xml`, `de.lproj/Localizable.strings`, …; `--pattern` for any other
+layout). The same checks run on all of them.
+
+| Format | Compared by | Plurals |
+|---|---|---|
+| JSON, ARB, YAML | dotted key | ICU `{count, plural, …}` checked against the language's CLDR forms |
+| `.strings`, `.properties`, `.resx` | key | none in the format |
+| `.po` | `msgid` (+ `msgctxt`) | each `msgstr[n]`; the header must declare as many forms as the language needs |
+| Android XML | `name` | `<plurals>` read as one ICU plural, so Japanese's single form is complete and Russian's two is not |
+| XLIFF 1.2 | trans-unit `id`: `<source>` against `<target>` | — |
+| CSV | key, one column per language (`key,en,de,…`), in the file itself and in the `translations/<name>.csv` that `translate` writes; a blank cell is untranslated | — |
+| Fluent | message, `.attribute`, selector variant | a plural selector is checked like ICU |
+| Markdown / MDX | the numbered blocks of the document (no keys); code, URLs and tags must survive | — |
+
+Not covered: `.stringsdict` (use a String Catalog), XLIFF 2.0, YAML with anchors, aliases, tags or
+several documents (named, not guessed at: exit code 2), and Fluent placeables inside a plural arm
+other than `{ $var }`. With `--sarif`, findings in formats other than JSON/ARB are placed on
+line 1 of the file.
+
+A `.xcstrings` and a CSV are checked differently because the format is different: the source
+language and every translation live in one file, so there is nothing to open per language — both
+sides come out of the same parse.
 
 ```bash
 kaeris check --source Localizable.xcstrings --langs de,ru,ar

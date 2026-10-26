@@ -7,13 +7,15 @@ gained a placeholder — the kind of bug that silently breaks the app at
 runtime (`Hello {name}` -> `Bonjour` drops the name; `{name}` -> `{nom}`
 just crashes str.format()/ICU).
 
-JSON only for now (matches --only-new's scope elsewhere in the CLI).
+Every format `translate` writes goes through the same comparison: a reader (kaeris/formats.py)
+turns the file into {key: text}, and everything below works on those.
 """
 
 import re
 
 from .incremental import flatten_all
 from . import detectors as det
+from .formats import lone_count_to_hash
 
 # Percent/dollar-style placeholders (order matters: positional and %@ must be
 # tried before the bare %s/%d/... class since e.g. "%1$s" would otherwise
@@ -98,7 +100,38 @@ def find_placeholders(text):
     return found
 
 
-def diff_locale(source_flat, target_flat):
+# A .po plural has msgstr[0], [1] and, for languages with more forms, [2]... Only the first two
+# have a counterpart in the source; the rest are read against its plural form, never reported
+# as extra keys.
+_EXTRA_FORM_RE = re.compile(r"⟦plural:\d+⟧$")
+
+
+def source_twin(key, source_flat):
+    """The source key this target key is compared against: itself, or for an extra plural form
+    the source's plural form. None when there is none."""
+    if key in source_flat:
+        return key
+    twin = _EXTRA_FORM_RE.sub("⟦plural⟧", key)
+    return twin if twin != key and twin in source_flat else None
+
+
+def _pairs(source_flat, target_flat, optional=()):
+    """(key, source value, target value) for every key both sides have, in the source's order,
+    then the extra plural forms the target has. For the keys in `optional` (a .po singular
+    form) a lone count is read as `#` on both sides: "Eine Datei" is a correct "%d file"."""
+    for key, src_val in source_flat.items():
+        if key in target_flat:
+            tgt_val = target_flat[key]
+            if key in optional and isinstance(src_val, str) and isinstance(tgt_val, str):
+                src_val, tgt_val = lone_count_to_hash(src_val), lone_count_to_hash(tgt_val)
+            yield key, src_val, tgt_val
+    for key, tgt_val in target_flat.items():
+        twin = source_twin(key, source_flat)
+        if twin is not None and twin != key:
+            yield key, source_flat[twin], tgt_val
+
+
+def diff_locale(source_flat, target_flat, pair=True, optional=()):
     """Compare one target locale's flattened keys against the flattened source.
 
     Returns (missing, extra, placeholder_issues):
@@ -111,13 +144,12 @@ def diff_locale(source_flat, target_flat):
         at runtime.
     """
     missing = sorted(k for k in source_flat if k not in target_flat)
-    extra = sorted(k for k in target_flat if k not in source_flat)
+    extra = sorted(k for k in target_flat if source_twin(k, source_flat) is None)
 
     issues = []
-    for key, src_val in source_flat.items():
-        if key not in target_flat:
-            continue
-        tgt_val = target_flat[key]
+    if not pair:
+        return missing, extra, issues
+    for key, src_val, tgt_val in _pairs(source_flat, target_flat, optional):
         if not isinstance(src_val, str) or not isinstance(tgt_val, str):
             continue
         src_ph = find_placeholders(src_val)
@@ -134,9 +166,12 @@ def diff_locale(source_flat, target_flat):
 def check_locales(source_obj, langs, load_target, glossary=None):
     """Run the check across every target language.
 
-    `load_target(lang)` -> parsed JSON object for that language, or None if
-    the file doesn't exist (a whole-locale-missing lang is reported as every
-    source key being missing).
+    `load_target(lang)` -> the parsed locale for that language (a JSON object, or the flat
+    {key: text} a format reader returns), or None if the file doesn't exist (a whole-locale-
+    missing lang is reported as every source key being missing). A reader's `notes` (findings
+    about the file as a whole, e.g. a .po header that declares too few plural forms) are added
+    to the faults/warnings of that language; `skip_pairwise` says the strings cannot be paired
+    with the source's by key, so only missing/extra keys are compared.
 
     Returns the result dict (this is exactly what --json prints):
       {"ok": bool, "missing": {lang: [keys]}, "extra": {lang: [keys]},
@@ -149,6 +184,7 @@ def check_locales(source_obj, langs, load_target, glossary=None):
     `ok` — that's what --strict is for).
     """
     source_flat = flatten_all(source_obj)
+    optional = getattr(source_obj, "count_optional", ())
 
     result = {
         "ok": True,
@@ -168,7 +204,15 @@ def check_locales(source_obj, langs, load_target, glossary=None):
             result["ok"] = False
             continue
         target_flat = flatten_all(target_obj)
-        missing, extra, issues = diff_locale(source_flat, target_flat)
+        pair = not getattr(target_obj, "skip_pairwise", False)
+        for note in getattr(target_obj, "notes", []):
+            rec = {"lang": lang, "key": note.get("key", ""), "msg": note["msg"]}
+            if note.get("severity") == "error":
+                result["faults"].append({**rec, "severity": "error"})
+                result["ok"] = False
+            else:
+                result["warnings"].append({**rec, "severity": "warn"})
+        missing, extra, issues = diff_locale(source_flat, target_flat, pair, optional)
         if missing:
             result["missing"][lang] = missing
             result["ok"] = False
@@ -179,8 +223,7 @@ def check_locales(source_obj, langs, load_target, glossary=None):
         if issues:
             result["ok"] = False
         # Per-string detectors on shared keys (RED faults + YELLOW warnings).
-        for key, src_val in source_flat.items():
-            tgt_val = target_flat.get(key)
+        for key, src_val, tgt_val in (_pairs(source_flat, target_flat, optional) if pair else ()):
             if not isinstance(src_val, str) or not isinstance(tgt_val, str):
                 continue
             if src_val.strip() and not tgt_val.strip():
@@ -200,14 +243,10 @@ def check_locales(source_obj, langs, load_target, glossary=None):
         # through untouched, so our own output has them). Guarding only the per-string loop
         # left `_register_faults` joining a dict with an int in it — a traceback instead of a
         # verdict, and only in languages that have T–V markers (de/fr/es/it/ru).
-        # Same contract as the per-string loop above: the detectors read text, and a locale
-        # legitimately holds numbers, booleans, lists and nulls (`translate` carries them
-        # through untouched, so our own output has them). Guarding only the per-string loop
-        # left `_register_faults` joining a dict with an int in it — a traceback instead of a
-        # verdict, and only in languages that have T–V markers (de/fr/es/it/ru).
         src_text = {k: v for k, v in source_flat.items() if isinstance(v, str)}
         tgt_text = {k: v for k, v in target_flat.items() if isinstance(v, str)}
-        for f in det.file_faults(src_text, tgt_text, lang):
+        for f in (det.file_faults(src_text, tgt_text, lang) if pair else ()):
             result["warnings"].append({"lang": lang, "msg": f["msg"], "severity": "warn"})
 
     return result
+
