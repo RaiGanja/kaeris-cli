@@ -1,0 +1,4 @@
+# the corpus is compared byte for byte with what the Python original read
+test/corpus/** -text
+test/baseline/** -text
+test/pairs.json -text
