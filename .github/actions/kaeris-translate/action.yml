@@ -10,7 +10,7 @@ inputs:
     required: false
     default: "translate"
   source:
-    description: "Source strings file (e.g. locales/en.json)"
+    description: "Source strings file (e.g. locales/en.json). Any supported format; `kaeris check` reads all of them"
     required: true
   languages:
     description: "Comma-separated target languages, e.g. es,fr,de,ja"
@@ -47,6 +47,37 @@ inputs:
     required: false
     default: ""
 
+  create-pr:
+    description: >-
+      translate mode: open (or update) a pull request with the translations and a quality report
+      in its description. Runs the translation with the read-back check (--verify) so the report
+      has the numbers. Needs `permissions: contents: write, pull-requests: write` on the job.
+      Default false: the action only writes files, as before.
+    required: false
+    default: "false"
+  apply-fixes:
+    description: >-
+      create-pr: write the fixes the read-back check found into the locale files before the commit
+      (`kaeris fix`: free, offline, only fixes our own checks pass). Set false to leave every line
+      to a reviewer. Unused without create-pr.
+    required: false
+    default: "true"
+  pr-branch:
+    description: "create-pr: branch the translations are committed to. Reused on every run, so there is one open PR, not one per run."
+    required: false
+    default: "kaeris/i18n-update"
+  pr-base:
+    description: "create-pr: branch the PR targets. Default: the branch the workflow ran on."
+    required: false
+    default: ""
+  pr-title:
+    description: "create-pr: title of the pull request."
+    required: false
+    default: "i18n: update translations"
+  token:
+    description: "create-pr: token used to create the pull request. The default is the workflow's own GITHUB_TOKEN."
+    required: false
+    default: ${{ github.token }}
   strict:
     description: "check mode: also fail if a target locale has extra/stale keys not in the source."
     required: false
@@ -72,6 +103,21 @@ outputs:
   check-exit-code:
     description: "Exit code of the post-run `kaeris check` (0 clean, 1 problem found, 2 bad usage)."
     value: ${{ steps.run.outputs.check-exit-code }}
+  pr-url:
+    description: "create-pr: URL of the pull request that was created or updated. Empty when there was nothing to commit."
+    value: ${{ steps.run.outputs.pr-url }}
+  pr-number:
+    description: "create-pr: number of that pull request."
+    value: ${{ steps.run.outputs.pr-number }}
+  pr-action:
+    description: "create-pr: created, updated, or none (nothing to commit)."
+    value: ${{ steps.run.outputs.pr-action }}
+  fixes-applied:
+    description: "create-pr: lines the automatic fixes rewrote."
+    value: ${{ steps.run.outputs.fixes-applied }}
+  needs-review:
+    description: "create-pr: lines left for a person after the automatic fixes."
+    value: ${{ steps.run.outputs.needs-review }}
   translate-exit-code:
     description: "Exit code of `kaeris translate` (0 clean, 3 some languages fell back to source). Non-zero also fails the step."
     value: ${{ steps.run.outputs.translate-exit-code }}
@@ -86,11 +132,11 @@ runs:
 
     - name: Install KAERIS CLI
       shell: bash
-      # Pin to the version that ships every flag this action passes — the `check --json --ci`
+      # Pin to the version that ships every flag this action passes — `kaeris fix` and its `_applied`/`_skipped` record in verify.json (0.2.35), `check` on every format, the `check --json --ci`
       # firewall, the incremental flags, and `--sarif`. Unpinned, a runner can be handed an
       # older CLI that lacks one and the job dies on "unrecognized arguments": that is exactly
       # how the SARIF gap showed up by hand on 03.08.2026.
-      run: pip install "kaeris>=0.2.12"
+      run: pip install "kaeris>=0.2.35"
 
     - name: Run KAERIS (${{ inputs.mode }})
       id: run
@@ -108,6 +154,12 @@ runs:
         KA_ICU: ${{ inputs.icu }}
         KA_STRICT: ${{ inputs.strict }}
         KA_SARIF: ${{ inputs.sarif-file }}
+        KA_CREATE_PR: ${{ inputs.create-pr }}
+        KA_APPLY_FIXES: ${{ inputs.apply-fixes }}
+        KA_PR_BRANCH: ${{ inputs.pr-branch }}
+        KA_PR_BASE: ${{ inputs.pr-base }}
+        KA_PR_TITLE: ${{ inputs.pr-title }}
+        GITHUB_TOKEN: ${{ inputs.token }}
       run: |
         set -e
         out="$KA_OUT"
@@ -119,12 +171,14 @@ runs:
         after_json="$RUNNER_TEMP/kaeris-check-after.json"
         translate_log="$RUNNER_TEMP/kaeris-translate.log"
         summary_file="$RUNNER_TEMP/kaeris-summary.md"
+        pre_json="$RUNNER_TEMP/kaeris-check-pre-fix.json"
+        verify_kept="$RUNNER_TEMP/kaeris-verify.json"
         changed=false
 
         # Clear any scratch files left by a prior invocation of this action earlier in the same
         # job (e.g. a translate step followed by a check step sharing $RUNNER_TEMP) — otherwise a
         # stale "before" snapshot could leak into this run's translated-key count.
-        rm -f "$before_json" "$after_json" "$translate_log" "$summary_file"
+        rm -f "$before_json" "$after_json" "$translate_log" "$summary_file" "$pre_json" "$verify_kept"
 
         if [ "$KA_MODE" = "check" ]; then
           # The i18n firewall: static, no API call. Result captured to JSON; exit code decides the gate below.
@@ -143,6 +197,7 @@ runs:
           [ "$KA_ONLY_NEW" = "true" ] && args+=(--only-new)
           [ -n "$KA_TONE" ] && args+=(--tone "$KA_TONE")
           [ "$KA_ICU" = "true" ] && args+=(--icu)
+          [ "$KA_CREATE_PR" = "true" ] && args+=(--verify)
           # `set -e` does NOT catch this: a pipeline's status is the status of its LAST
           # command, and `tee` always succeeds. So every non-zero exit from `kaeris translate`
           # was swallowed and the action carried on as if the run had gone fine — including
@@ -154,6 +209,18 @@ runs:
           kaeris "${args[@]}" 2>&1 | tee "$translate_log"
           translate_exit=${PIPESTATUS[0]}
           set -e
+
+          if [ "$KA_CREATE_PR" = "true" ] && [ -f "$out/verify.json" ]; then
+            if [ "$KA_APPLY_FIXES" = "true" ]; then
+              # Snapshot the findings, apply the fixes, and let the report diff the two: the
+              # numbers for "fixed automatically" are measured, not claimed.
+              kaeris check --source "$KA_SOURCE" --langs "$KA_LANGS" --out "$out" --json > "$pre_json" 2>/dev/null || true
+              kaeris fix --from "$out/verify.json" || true
+            fi
+            # verify.json holds paths relative to itself, so it moves only after `kaeris fix`,
+            # and it never goes into the commit.
+            mv "$out/verify.json" "$verify_kept"
+          fi
 
           set +e
           kaeris check --source "$KA_SOURCE" --langs "$KA_LANGS" --out "$out" --json > "$after_json"
@@ -168,14 +235,26 @@ runs:
         # Build the markdown summary + all outputs (missing/placeholder-issues/summary) from the
         # real `kaeris check --json` result (and, in translate mode, the translate log for overflow
         # QA) — never fabricated. `changed` and `check-exit-code` are appended by this script below.
-        python3 "${{ github.action_path }}/summarize.py" \
-          --mode "$KA_MODE" \
-          --langs "$KA_LANGS" \
-          --after "$after_json" \
-          --before "$before_json" \
-          --log "$translate_log" \
-          --out-file "$summary_file" \
-          --github-output "$GITHUB_OUTPUT"
+        if [ "$KA_MODE" = "translate" ] && [ "$KA_CREATE_PR" = "true" ]; then
+          python3 "${{ github.action_path }}/trusted_pr.py" report \
+            --langs "$KA_LANGS" \
+            --before "$before_json" \
+            --pre "$pre_json" \
+            --after "$after_json" \
+            --verify-json "$verify_kept" \
+            --apply-fixes "$KA_APPLY_FIXES" \
+            --out-file "$summary_file" \
+            --github-output "$GITHUB_OUTPUT"
+        else
+          python3 "${{ github.action_path }}/summarize.py" \
+            --mode "$KA_MODE" \
+            --langs "$KA_LANGS" \
+            --after "$after_json" \
+            --before "$before_json" \
+            --log "$translate_log" \
+            --out-file "$summary_file" \
+            --github-output "$GITHUB_OUTPUT"
+        fi
 
         if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
           cat "$summary_file" >> "$GITHUB_STEP_SUMMARY"
@@ -197,6 +276,23 @@ runs:
             echo "::error::kaeris translate failed (exit ${translate_exit}) — see the log above."
           fi
           exit "$translate_exit"
+        fi
+
+        if [ "$KA_MODE" = "translate" ] && [ "$KA_CREATE_PR" = "true" ]; then
+          if [ "$changed" = "true" ]; then
+            python3 "${{ github.action_path }}/trusted_pr.py" open-pr \
+              --source "$KA_SOURCE" \
+              --out "$out" \
+              --branch "$KA_PR_BRANCH" \
+              --base "$KA_PR_BASE" \
+              --title "$KA_PR_TITLE" \
+              --message "$KA_PR_TITLE" \
+              --body-file "$summary_file" \
+              --github-output "$GITHUB_OUTPUT"
+          else
+            echo "pr-action=none" >> "$GITHUB_OUTPUT"
+            echo "Nothing changed: no pull request opened."
+          fi
         fi
 
         if [ "$KA_MODE" = "check" ] && [ "$check_exit" != "0" ]; then
