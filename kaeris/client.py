@@ -217,7 +217,7 @@ class KaerisClient:
 
     def _multipart(self, filename, content, languages, glossary=None,
                    verify=False, back_lang="en", tone="", icu=False, reuse=None,
-                   app_context=""):
+                   app_context="", translate_service_keys=False):
         boundary = "----kaeris" + uuid.uuid4().hex
         crlf = b"\r\n"
         parts = []
@@ -257,6 +257,11 @@ class KaerisClient:
             parts.append(b'Content-Disposition: form-data; name="icu"')
             parts.append(b"")
             parts.append(b"true")
+        if translate_service_keys:
+            parts.append(b"--" + boundary.encode())
+            parts.append(b'Content-Disposition: form-data; name="translate_service_keys"')
+            parts.append(b"")
+            parts.append(b"true")
         if app_context:
             parts.append(b"--" + boundary.encode())
             parts.append(b'Content-Disposition: form-data; name="app_context"')
@@ -274,8 +279,11 @@ class KaerisClient:
 
     def submit(self, filename, content, languages, glossary=None,
                verify=False, back_lang="en", tone="", icu=False, reuse=None,
-               app_context=""):
+               app_context="", translate_service_keys=False):
         """POST a file for translation; returns job_id.
+
+        translate_service_keys: the server leaves keys starting with `_` (`_status`,
+             `meta._note`) untranslated in JSON/YAML/ARB; True translates them too.
 
         tone: "" (neutral, default) / "formal" / "casual".
         app_context: a short free-text description of the app ("a bank app for teenagers"),
@@ -291,7 +299,8 @@ class KaerisClient:
         body, ctype = self._multipart(filename, content, languages, glossary,
                                       verify=verify, back_lang=back_lang,
                                       tone=tone, icu=icu, reuse=reuse,
-                                      app_context=app_context)
+                                      app_context=app_context,
+                                      translate_service_keys=translate_service_keys)
         req = urllib.request.Request(
             self.api_url + "/api/translate", data=body, method="POST",
             headers=self._headers({"Content-Type": ctype}),

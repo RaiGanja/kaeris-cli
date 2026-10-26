@@ -340,6 +340,7 @@ Anything not passed falls back to `kaeris.json`, then to the built-in default.
 | `--source-lang en` | base language code; also detects `locales/<lang>/<namespace>.json` layouts |
 | `--verify` | back-translate and write `verify.json` so you can check the meaning |
 | `--back-lang en` | language to back-translate into with `--verify` |
+| `--translate-service-keys` | also translate keys that start with `_` (`"_status"`); by default they are copied through untouched in JSON, YAML and ARB |
 | `--quiet` | no progress output |
 | `--receipt PATH` | write a JSON record of the run — counts and settings only, no strings |
 | `--tm PATH` | project translation memory file (default `kaeris-tm.json` next to the source) |

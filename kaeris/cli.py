@@ -225,6 +225,11 @@ def _app_context(args):
     return (getattr(args, "context", "") or "").strip()[:APP_CONTEXT_LIMIT]
 
 
+def _service_keys_opt(args):
+    """Sent only when asked for, so a client stub or an older server sees the call it knows."""
+    return {"translate_service_keys": True} if getattr(args, "translate_service_keys", False) else {}
+
+
 def _tone(args):
     tone = getattr(args, "tone", "neutral")
     return "" if tone == "neutral" else tone
@@ -849,7 +854,8 @@ def _translate_one(client, path, langs, args):
     job = client.submit(fname, content, langs, _glossary(args), reuse=reuse,
                         verify=args.verify, back_lang=args.back_lang,
                         tone=_tone(args), icu=args.icu,
-                        app_context=_app_context(args))
+                        app_context=_app_context(args),
+                        **_service_keys_opt(args))
     status = client.poll(job, on_progress=None if args.quiet else _progress_printer())
     members = client.download(job)
     written = _write_members(members, path, args.out, args.source_lang)
@@ -1020,7 +1026,8 @@ def _translate_incremental(client, path, out_dir, langs, args):
         job = client.submit(os.path.basename(path), content, [lang], _glossary(args),
                             tone=_tone(args), icu=args.icu, reuse=reuse,
                             verify=args.verify, back_lang=args.back_lang,
-                            app_context=_app_context(args))
+                            app_context=_app_context(args),
+                            **_service_keys_opt(args))
         status = client.poll(job, on_progress=None if args.quiet else _progress_printer())
         members = client.download(job)
         translated = _find_json_member(members, lang)
@@ -1239,6 +1246,9 @@ def build_parser():
                    help="Hint that source values may use ICU MessageFormat (plurals/select) so it's preserved")
     t.add_argument("--no-icu", dest="icu", action="store_false", default=None,
                    help="Disable the ICU hint (overrides kaeris.json's icu)")
+    t.add_argument("--translate-service-keys", action="store_true",
+                   help="Also translate keys that start with '_' (e.g. \"_status\"). By default "
+                        "they are copied through untouched in JSON, YAML and ARB.")
     t.add_argument("--quiet", "-q", action="store_true", help="Suppress progress output")
     t.add_argument("--tm", metavar="PATH",
                    help=f"Project translation memory file (default: {tmem.FILENAME} next to "
