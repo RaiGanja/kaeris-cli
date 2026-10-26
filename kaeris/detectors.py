@@ -976,6 +976,21 @@ def _answered_instead_of_translating(original: str, translated: str) -> bool:
     return len(tr) >= max(4 * len(src), 120)
 
 
+# Two kinds of warning, two headings (X2, 26.10.2026) — the same split as the server's
+# translator.warning_group, held equal by backend/tests/test_two_kinds_of_warning.py.
+# "break": the app itself can fail (placeholders, ICU, tags, line breaks, escapes).
+# "meaning": the app works, the words may be wrong (numbers, currency, untranslated, terms).
+_MEANING_WARNING_RE = re.compile(
+    r"^(?:number |currency |may be untranslated|brand term |glossary |invented link|"
+    r"not a translation|source string reads like|truncated|translation adds a text-direction)"
+    r"|translated on its own|every string replaced by", re.I)
+
+
+def warning_group(message: str) -> str:
+    """"break" or "meaning" for one detector message."""
+    return "meaning" if _MEANING_WARNING_RE.search(message or "") else "break"
+
+
 def string_faults(src, tgt, lang, glossary=None):
     """All per-string faults between one source value and one target value,
     each tagged error (breaks build) or warn (advisory). Pure/offline."""

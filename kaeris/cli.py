@@ -15,6 +15,7 @@ from .incremental import TooDeep
 from . import check as chk
 from . import xcstrings as xc
 from . import tm as tmem
+from . import detectors as det
 
 CONFIG_FILENAME = "kaeris.json"
 
@@ -750,11 +751,24 @@ def _write_verify(args, files):
     back = getattr(args, "verify_back", None)
     if not back:
         return
+    reviews = getattr(args, "verify_review", None) or {}
+
+    def one(f):
+        # Back-translations keep their old place ({lang: {key: text}}) so a script that read
+        # verify.json yesterday still reads it; what the check found sits beside them.
+        b = dict(back[f])
+        r = reviews.get(f) or {}
+        if r:
+            b["_review"] = {lang: v["lines"] for lang, v in r.items()}
+            b["_summary"] = {name: sum(v["summary"][name] for v in r.values())
+                             for name in ("lines", "to_review", "error", "review", "unchecked")}
+        return b
+
     if len(files) == 1:
-        body = back[files[0]]
+        body = one(files[0])
         out_dir = args.out or os.path.dirname(os.path.abspath(files[0]))
     else:
-        body = {os.path.relpath(f).replace(os.sep, "/"): b for f, b in back.items()}
+        body = {os.path.relpath(f).replace(os.sep, "/"): one(f) for f in back}
         out_dir = args.out or os.getcwd()
     vpath = os.path.join(out_dir, "verify.json")
     write_atomic(vpath, json.dumps(body, ensure_ascii=False, indent=2))
@@ -895,17 +909,30 @@ def _show_qa(client, job, args, path):
     warnings = data.get("_warnings") or {}
     qa = data.get("_qa") or {}
     back = data.get("_back") or {}
+    meaning = data.get("_meaning") or {}
+    review = data.get("_review") or {}
 
-    ph = sum(len(kv) for kv in warnings.values())
-    if ph:
-        # The server files every finding here — numbers, prices, line breaks as well as lost
-        # placeholders. Calling them all "dropped a placeholder" told a correct "2倍" that the
-        # app would break (client report 11). A bare token is a lost one; a sentence is read out.
-        warn(f"{ph} translation(s) to check before you ship:")
-        for lang, kv in warnings.items():
-            for k, found in list(kv.items())[:5]:
-                said = [f"missing {f}" if re.match(r"^[{%<$]", f) else f for f in found]
-                print(f"    [{lang}] {k}: {'; '.join(said)}", file=sys.stderr)
+    ph = 0
+    # Two headings for two kinds of finding (X2): a lost placeholder breaks the app, a moved
+    # number or a localized price may only read wrong. Under one "your app may break" header a
+    # correct "2倍" was told the build would fail (client report 11, N7). A bare token is a
+    # lost one; a sentence is read out.
+    for group, heading in (("break", "may break your app"),
+                           ("meaning", "check the meaning before you ship")):
+        lines = [(lang, k, [f for f in found if det.warning_group(f) == group])
+                 for lang, kv in warnings.items() for k, found in kv.items()]
+        lines = [line for line in lines if line[2]]
+        if not lines:
+            continue
+        ph += len(lines)
+        warn(f"{len(lines)} translation(s) {heading}:")
+        shown = {}
+        for lang, k, found in lines:
+            shown[lang] = shown.get(lang, 0) + 1
+            if shown[lang] > 5:
+                continue
+            said = [f"missing {f}" if re.match(r"^[{%<$]", f) else f for f in found]
+            print(f"    [{lang}] {k}: {'; '.join(said)}", file=sys.stderr)
 
     over = sum(len(v.get("overflow", [])) for v in qa.values())
     if over:
@@ -918,16 +945,74 @@ def _show_qa(client, job, args, path):
                 print(f"    [{lang}] {o['key']}: +{o['pct']}%  \"{o['tr'][:50]}\"", file=sys.stderr)
                 shown += 1
 
+    if args.verify:
+        _show_meaning(meaning, review)
     if args.verify and back:
         sink = args.__dict__.setdefault("verify_back", {}).setdefault(path, {})
         for lang, kv in back.items():
             sink.setdefault(lang, {}).update(kv)
+        lines = args.__dict__.setdefault("verify_review", {}).setdefault(path, {})
+        for lang, r in review.items():
+            lines[lang] = _review_entries(lang, r, meaning.get(lang) or {},
+                                          warnings.get(lang) or {})
 
     if not ph and not over:
         ok("Translation QA: no placeholder loss, no overflow risks")
     # Returned so the caller can fold the results into the project memory without a second
     # round trip for the same payload.
     return data
+
+
+def _show_meaning(meaning, review):
+    """What the meaning check found (U1), why, and the fix that passed the detectors (U4);
+    then the per-file count of lines a person should read (U3)."""
+    shown = 0
+    for lang, kv in meaning.items():
+        for k, f in kv.items():
+            shown += 1
+            if shown > 10:
+                continue
+            why = f" — {f['explain']}" if f.get("explain") else ""
+            print(f"    ⚠ meaning: [{lang}] {k}: {f.get('issue', '')}{why}", file=sys.stderr)
+            if f.get("fix"):
+                print(f"      suggested fix: {f['fix']}", file=sys.stderr)
+    if shown > 10:
+        print(f"    … and {shown - 10} more in verify.json", file=sys.stderr)
+    if not review:
+        return
+    total = sum(r.get("to_review", 0) for r in review.values())
+    lines = sum(r.get("lines", 0) for r in review.values())
+    errors = sum(len(r.get("error", [])) for r in review.values())
+    unchecked = sum(len(r.get("unchecked", [])) for r in review.values())
+    if total:
+        warn(f"Verify: {total} lines to review of {lines} ({errors} likely wrong, "
+             f"{total - errors} to check) — the list is in verify.json")
+    else:
+        ok(f"Verify: {lines} lines checked, none to review")
+    if unchecked:
+        warn(f"Verify: {unchecked} lines could not be checked for meaning (the checker did "
+             "not answer) — read them yourself")
+
+
+def _review_entries(lang, review, meaning, warnings):
+    """verify.json's `_review` for one language: every line that is not ok, with why."""
+    out = {}
+    for status in ("error", "review", "unchecked"):
+        for k in review.get(status, []):
+            entry = {"status": status}
+            f = meaning.get(k) or {}
+            if f.get("issue"):
+                entry["meaning"] = f["issue"]
+            for field in ("explain", "fix"):
+                if f.get(field):
+                    entry[field] = f[field]
+            if warnings.get(k):
+                entry["warnings"] = warnings[k]
+            out[k] = entry
+    out_summary = {"lines": review.get("lines", 0), "to_review": review.get("to_review", 0),
+                   "error": len(review.get("error", [])), "review": len(review.get("review", [])),
+                   "unchecked": len(review.get("unchecked", []))}
+    return {"lines": out, "summary": out_summary}
 
 
 def _arb_meta_key(flat_key):
