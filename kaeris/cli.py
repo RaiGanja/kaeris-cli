@@ -450,10 +450,45 @@ def _existing_case(path, lang):
     return drive + os.sep.join(parts)
 
 
-def _out_path(src_path, lang, out_dir, source_lang, lang_case="keep"):
-    """Where `lang`'s translation of `src_path` goes: _target_path, in the project's own case."""
+def _adopt_lower_case(path, lang):
+    """Rename the file or folder that already carries `lang` in another case (zh-Hant.json)
+    to the spelling in `path` (zh-hant.json). Only a rename of the one entry that differs in
+    case alone; an exact match, or two candidates, is left as it is."""
+    drive, rest = os.path.splitdrive(os.path.normpath(path))
+    parts = rest.split(os.sep)
+    want = lang.lower()
+    for i, part in enumerate(parts):
+        if not part or want not in part.lower():
+            continue
+        parent = drive + (os.sep.join(parts[:i]) or (os.sep if rest.startswith(os.sep) else "."))
+        try:
+            names = os.listdir(parent)
+        except OSError:
+            break
+        if part in names:
+            continue
+        same = [n for n in names if n.lower() == part.lower()]
+        if len(same) == 1:
+            os.replace(os.path.join(parent, same[0]), os.path.join(parent, part))
+            info(f"Renamed {same[0]} → {part} (--lang-case lower)")
+
+
+def _out_path(src_path, lang, out_dir, source_lang, lang_case="keep", for_write=False):
+    """The one place that names the file a language's translation goes to, for every way of
+    writing one (whole file, --only-new, several files, the files --apply-fixes edits).
+
+    Default: _target_path, in the project's own case (what is already on disk wins).
+    `--lang-case lower`: the file is zh-hant.json, always. Reading (for_write=False) still
+    finds an older zh-Hant.json; writing renames it first, so the run never leaves the
+    spelling the project asked against behind (client report, 0.2.34: --only-new wrote
+    zh-Hant.json into a project that wants zh-hant.json)."""
     if lang_case == "lower":
         lang = lang.lower()
+        path = _target_path(src_path, lang, out_dir, source_lang)
+        if for_write:
+            _adopt_lower_case(path, lang)
+            return path
+        return _existing_case(path, lang)
     return _existing_case(_target_path(src_path, lang, out_dir, source_lang), lang)
 
 
@@ -1379,7 +1414,7 @@ def _translate_incremental(client, path, out_dir, langs, args):
     pool = ThreadPoolExecutor(max_workers=_jobs(args))
     for lang in langs:
         target_path = _out_path(path, lang, out_dir, args.source_lang,
-                                getattr(args, "lang_case", "keep"))
+                                getattr(args, "lang_case", "keep"), for_write=True)
         os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
         existing = inc.load_json(target_path) if os.path.isfile(target_path) else {}
         existing_flat = inc.flatten(existing) if existing else {}
@@ -1451,6 +1486,7 @@ def _translate_incremental(client, path, out_dir, langs, args):
         if is_arb:
             merged["@@locale"] = lang  # stamp the target locale on the written ARB
         inc.dump_json(merged, target_path)
+        args.__dict__.setdefault("verify_files", {}).setdefault(path, {})[lang] = target_path
         ok(f"{lang}: merged {len(todo)} key(s) → {target_path}")
 
     if receipts and getattr(args, "receipt", None):
@@ -1577,7 +1613,7 @@ def _write_members(members, src_path, out_dir, source_lang, digits="native", lan
         folder = os.path.basename(os.path.dirname(name.replace("\\", "/")))
         lang = (folder[len("values-"):] if folder.startswith("values-")
                 else os.path.splitext(os.path.basename(name))[0])
-        dest = _out_path(src_path, lang, out_dir, source_lang, lang_case)
+        dest = _out_path(src_path, lang, out_dir, source_lang, lang_case, for_write=True)
         os.makedirs(os.path.dirname(dest) or out_dir or ".", exist_ok=True)
         write_atomic(dest, data, binary=True)
         written.append(dest)

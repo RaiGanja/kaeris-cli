@@ -145,5 +145,7 @@ def test_only_new_keeps_verify(tmp_path, server):
     assert _run(str(en), "--langs", "de,fr", "--only-new", "--verify") == 0
     assert server.submits and all(s.get("verify") for s in server.submits), server.submits
     back = json.loads((tmp_path / "verify.json").read_text("utf-8"))
+    # `_files` says where each language was written, for `kaeris fix` / --apply-fixes.
+    assert back.pop("_files") == {"de": "de.json", "fr": "fr.json"}
     assert back == {"de": {"a": "back:Save"}, "fr": {"a": "back:Save"}}, \
         "one verify.json for the run, holding every language"

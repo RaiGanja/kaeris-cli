@@ -135,3 +135,88 @@ def test_the_client_keeps_the_servers_warnings(monkeypatch):
     c = C.KaerisClient(api_key="k")
     assert c.submit("en.json", b'{"a":"b"}', ["de"]) == "j1"
     assert c.job_warnings("j1") == ["Unknown languages ignored: qq"]
+
+
+# ── --lang-case lower reaches every path that writes a file ──────────────────
+
+def _names(project):
+    return sorted(p.name for p in (project / "i18n").iterdir()
+                  if p.suffix == ".json" and p.name not in ("en.json", "kaeris-tm.json"))
+
+
+def test_only_new_with_lang_case_lower_writes_the_lower_case_name(project, monkeypatch):
+    """A run with both flags wrote zh-Hant.json and broke a case-sensitive build."""
+    srv = _Server()
+    code, err = _run(srv, monkeypatch, "i18n/en.json", "--langs", "zh-Hant,fr-CA",
+                     "--only-new", "--lang-case", "lower")
+    assert code == 0, err
+    assert srv.jobs == [["zh-Hant"], ["fr-CA"]]
+    assert _names(project) == ["fr-ca.json", "zh-hant.json"]
+
+
+def test_only_new_with_lang_case_lower_from_kaeris_json(project, monkeypatch):
+    (project / "kaeris.json").write_text(json.dumps(
+        {"source": "i18n/en.json", "langs": ["zh-Hant"], "lang_case": "lower"}), encoding="utf-8")
+    code, err = _run(_Server(), monkeypatch, "--only-new")
+    assert code == 0, err
+    assert _names(project) == ["zh-hant.json"]
+
+
+def test_a_second_only_new_run_updates_the_same_lower_case_file(project, monkeypatch):
+    for _ in range(2):
+        code, err = _run(_Server(), monkeypatch, "i18n/en.json", "--langs", "zh-Hant",
+                         "--only-new", "--lang-case", "lower")
+        assert code == 0, err
+    assert _names(project) == ["zh-hant.json"]
+
+
+def test_several_files_with_lang_case_lower(project, monkeypatch):
+    (project / "i18n" / "other.json").write_text('{"b": "Bye"}', encoding="utf-8")
+    code, err = _run(_Server(), monkeypatch, "i18n/en.json", "i18n/other.json",
+                     "--langs", "zh-Hant", "--lang-case", "lower")
+    assert code == 0, err
+    assert not [p for p in project.rglob("*") if "Hant" in p.name], list(project.rglob("*"))
+
+
+def test_an_older_mixed_case_file_is_renamed_not_written_into(project, monkeypatch):
+    """The file was made before the option was set. The option wins; the content stays."""
+    (project / "i18n" / "zh-Hant.json").write_text('{"old": "舊"}', encoding="utf-8")
+    (project / "i18n" / "en.json").write_text('{"old": "Old", "a": "Hello"}', encoding="utf-8")
+    code, err = _run(_Server(), monkeypatch, "i18n/en.json", "--langs", "zh-Hant",
+                     "--only-new", "--lang-case", "lower")
+    assert code == 0, err
+    names = sorted(p.name for p in (project / "i18n").iterdir())
+    assert "zh-hant.json" in names and "zh-Hant.json" not in names, names
+    assert "舊" in (project / "i18n" / "zh-hant.json").read_text("utf-8")
+
+
+def test_a_whole_file_run_renames_an_older_mixed_case_file_too(project, monkeypatch):
+    (project / "i18n" / "zh-Hant.json").write_text('{"a": "舊"}', encoding="utf-8")
+    code, err = _run(_Server(), monkeypatch, "i18n/en.json", "--langs", "zh-Hant",
+                     "--lang-case", "lower")
+    assert code == 0, err
+    assert sorted(p.name for p in (project / "i18n").iterdir()
+                  if p.suffix == ".json" and p.name != "en.json") == ["zh-hant.json"]
+
+
+def test_without_the_option_an_existing_name_is_still_kept(project, monkeypatch):
+    (project / "i18n" / "zh-hant.json").write_text('{"a": "舊"}', encoding="utf-8")
+    code, err = _run(_Server(), monkeypatch, "i18n/en.json", "--langs", "zh-Hant")
+    assert code == 0, err
+    assert _names(project) == ["zh-hant.json"]
+
+
+def test_apply_fixes_finds_the_file_on_the_only_new_path(project, monkeypatch):
+    srv = _Server()
+    args_seen = {}
+    real = K._write_verify
+
+    def spy(args, files):
+        args_seen.update(getattr(args, "verify_files", {}))
+        return real(args, files)
+    monkeypatch.setattr(K, "_write_verify", spy)
+    code, err = _run(srv, monkeypatch, "i18n/en.json", "--langs", "zh-Hant", "--only-new",
+                     "--lang-case", "lower", "--verify")
+    assert code == 0, err
+    (by_lang,) = args_seen.values()
+    assert by_lang["zh-Hant"].endswith("zh-hant.json")
