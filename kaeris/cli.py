@@ -297,7 +297,7 @@ def _resolve_source(path):
     """Expand a glob pattern in a source path to a single file, if any glob chars are present."""
     if not any(ch in path for ch in "*?["):
         return path
-    matches = sorted(glob.glob(path))
+    matches = sorted(glob.glob(path, recursive=True))
     if not matches:
         return None
     if len(matches) > 1:
@@ -316,7 +316,7 @@ def _resolve_sources(raw):
         if not entry:
             continue
         if any(ch in entry for ch in "*?["):
-            matches.update(glob.glob(entry))
+            matches.update(glob.glob(entry, recursive=True))
         else:
             matches.add(entry)
     return sorted(p for p in matches if os.path.isfile(p))
@@ -859,7 +859,10 @@ def _translate_one(client, path, langs, args):
     status = client.poll(job, on_progress=None if args.quiet else _progress_printer())
     members = client.download(job)
     written = _write_members(members, path, args.out, args.source_lang)
-    ok(f"Wrote {len(written)} file(s) to {display_out}")
+    # Named from where the files actually went: the source folder was printed here even when
+    # every file landed in work/<lang>/ (client report 9).
+    dirs = {os.path.dirname(os.path.abspath(w)) for w in written}
+    ok(f"Wrote {len(written)} file(s)" + (f" to {dirs.pop()}" if len(dirs) == 1 else ":"))
     for w in written:
         print(w)
     # Translation QA — placeholder loss + UI-overflow (free), plus back-translation if --verify
