@@ -70,8 +70,10 @@ def test_verify_json_keeps_back_translations_and_adds_the_review(tmp_path):
     assert line["status"] == "error" and line["meaning"] == "opposite action"
     assert line["explain"] == "The German says 'sign out'." and line["fix"] == "Anmelden"
     assert body["_review"]["de"]["price"]["status"] == "review"
-    assert body["_summary"] == {"lines": 40, "to_review": 3, "error": 2, "review": 1,
-                                "unchecked": 0}
+    summary = dict(body["_summary"])
+    by_lang = summary.pop("by_lang")
+    assert summary == {"lines": 40, "to_review": 3, "error": 2, "review": 1, "unchecked": 0}
+    assert by_lang == {"de": {"lines": 40, "to_review": 3, "error": 2, "review": 1, "unchecked": 0}}
 
 
 def test_no_verify_no_meaning_lines():

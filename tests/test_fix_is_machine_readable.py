@@ -141,10 +141,11 @@ def test_a_run_over_several_files_records_each_section(tmp_path, monkeypatch):
     (tmp_path / "de").mkdir()
     (tmp_path / "de" / "a.md").write_text("Notizen vom *Hafen*.\n", encoding="utf-8")
     (tmp_path / "de" / "b.md").write_text("Zweite Seite.\n", encoding="utf-8")
-    section = lambda f, key, tr, fix: {"_files": {"de": f}, "_review": {"de": {
-        key: _entry("src", tr, fix=fix)}}}
-    body = {"docs/a.md": section("de/a.md", "md.0001", "Notizen vom *Hafen*.", "Notizen aus dem *Hafen*."),
-            "docs/b.md": section("de/b.md", "md.0001", "Zweite Seite.", "Zweite Seite!")}
+    section = lambda f, key, src, tr, fix: {"_files": {"de": f}, "_review": {"de": {
+        key: _entry(src, tr, fix=fix)}}}
+    body = {"docs/a.md": section("de/a.md", "md.0001", "Notes from the *harbor*.",
+                                 "Notizen vom *Hafen*.", "Notizen aus dem *Hafen*."),
+            "docs/b.md": section("de/b.md", "md.0001", "Second page.", "Zweite Seite.", "Zweite Seite!")}
     (tmp_path / "verify.json").write_text(json.dumps(body), encoding="utf-8")
     code, out, err = _main("fix", "--from", "verify.json", "--json")
     assert code == 0, err

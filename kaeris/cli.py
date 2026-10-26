@@ -960,6 +960,8 @@ def _write_verify(args, files):
             b["_review"] = {lang: v["lines"] for lang, v in r.items()}
             b["_summary"] = {name: sum(v["summary"][name] for v in r.values())
                              for name in ("lines", "to_review", "error", "review", "unchecked")}
+            # The same counts per language, so a reader need not add up `_review` itself.
+            b["_summary"]["by_lang"] = {lang: dict(v["summary"]) for lang, v in sorted(r.items())}
         if targets.get(f):
             # Relative to verify.json, so the project folder can move and `kaeris fix` still
             # finds each language's file.
@@ -977,27 +979,70 @@ def _write_verify(args, files):
     return vpath
 
 
-def _apply_verify(vpath, glossary=None, only=None, dry_run=False):
+def _fix_records(done):
+    """The machine-readable result of one verify.json section: `_applied` and `_skipped`, each
+    [{"lang", "key", "how", "why"}].
+
+    `how` is where an applied line came from: "fix" (the meaning check's corrected line) or
+    "structure" (line breaks / emphasis put back); null for a skipped line. `why` is a short
+    sentence: what was done, that it was already in the file, or why the line was left alone.
+    Lines that were already fixed on an earlier run stay in `_applied`, so running `kaeris fix`
+    twice leaves the same list."""
+    applied, skipped = [], []
+    for lang, key, _path, how, status, why in done:
+        if status == fx.SKIPPED:
+            skipped.append({"lang": lang, "key": key, "how": None, "why": why})
+        else:
+            said = ("already in the file" if status == fx.ALREADY
+                    else "suggested fix" if how == "fix" else "line breaks / emphasis put back")
+            applied.append({"lang": lang, "key": key, "how": how, "why": said})
+    return applied, skipped
+
+
+def _apply_verify(vpath, glossary=None, only=None, dry_run=False, as_json=False):
     """Write the fixes verify.json carries into the translated files (kaeris/fixes.py). Offline:
-    nothing here talks to the server, and nothing is charged. Returns the exit code."""
+    nothing here talks to the server, and nothing is charged. Records what was done in
+    verify.json itself (`_applied`, `_skipped` of each section) so nothing has to read the log.
+    Returns the exit code."""
     try:
         body = json.loads(read_text(vpath))
     except (OSError, ValueError) as e:
         err(f"Cannot read {vpath}: {getattr(e, 'strerror', None) or e}")
         return 2
+    before = json.dumps(body, ensure_ascii=False, indent=2)
     base = os.path.dirname(os.path.abspath(vpath))
-    rows = []
+    done, sections = [], []
     for name, section in fx.sections(body):
         if only and name and not any(os.path.relpath(o).replace(os.sep, "/") == name for o in only):
             continue
-        rows += fx.plan(section.get("_review"), section.get("_files"), base, glossary)
-    if not rows:
-        ok(f"Nothing to fix: {vpath} lists no lines to review")
-        return 0
-    done = fx.apply(rows, dry_run=dry_run)
+        rows = fx.plan(section.get("_review"), section.get("_files"), base, glossary)
+        result = fx.apply(rows, dry_run=dry_run)
+        done += result
+        sections.append((name, section, result))
+    report = {"verify": vpath.replace(os.sep, "/"), "dry_run": dry_run, "applied": [], "skipped": [],
+              "counts": {"applied": 0, "already": 0, "skipped": 0}}
+    for name, section, result in sections:
+        applied, skipped = _fix_records(result)
+        report["applied"] += applied
+        report["skipped"] += skipped
+        if name:
+            report.setdefault("sections", {})[name] = {"applied": applied, "skipped": skipped}
+        if not dry_run:
+            section["_applied"], section["_skipped"] = applied, skipped
+    if sections and not dry_run:
+        text = json.dumps(body, ensure_ascii=False, indent=2)
+        if text != before:
+            write_atomic(vpath, text)
     applied = [r for r in done if r[4] == fx.APPLIED]
     already = [r for r in done if r[4] == fx.ALREADY]
     skipped = [r for r in done if r[4] == fx.SKIPPED]
+    report["counts"] = {"applied": len(applied), "already": len(already), "skipped": len(skipped)}
+    if as_json:
+        utf8 = (sys.stdout.encoding or "").lower().replace("-", "") in ("utf8", "utf8sig")
+        print(json.dumps(report, ensure_ascii=not utf8, indent=2))
+    if not done:
+        ok(f"Nothing to fix: {vpath} lists no lines to review")
+        return 0
     by_fix = sum(1 for r in applied if r[3] == "fix")
     files = {r[2] for r in applied}
     if applied:
@@ -1026,7 +1071,7 @@ def cmd_fix(args):
         err(f"No verify file at {args.source} — run `kaeris translate … --verify` first")
         return 2
     return _apply_verify(args.source, glossary=glossary, only=args.files or None,
-                         dry_run=args.dry_run)
+                         dry_run=args.dry_run, as_json=args.json)
 
 
 def _tm_signature(args, client):
@@ -1713,6 +1758,10 @@ def build_parser():
                     help="Terms a fix must keep verbatim (default: 'keep' in kaeris.json)")
     fp.add_argument("--dry-run", action="store_true",
                     help="Say what would be written, write nothing")
+    fp.add_argument("--json", action="store_true",
+                    help="Print the result as JSON on stdout: {applied, skipped, counts}, each line "
+                         "{lang, key, how, why}. The same lists are written into verify.json as "
+                         "_applied and _skipped (not with --dry-run).")
     fp.set_defaults(func=cmd_fix)
 
     ls = sub.add_parser("languages", help="List supported target languages")
