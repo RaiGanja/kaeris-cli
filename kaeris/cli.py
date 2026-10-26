@@ -122,8 +122,11 @@ def _fmt_receipt(rec):
     mine = "characters" in rec
     lines = []
     delivered, failed = langs.get("delivered") or [], langs.get("failed") or []
+    # The model that did the work, not the one configured: with the primary down the fallback
+    # translated and this line still named the primary (R29).
+    served = [m for m in (rec.get("models_served") or []) if m]
     lines.append(
-        f"Run: {rec.get('model', '?')} · "
+        f"Run: {' + '.join(served) if served else rec.get('model', '?')} · "
         f"{_PLAN_NAMES.get(rec.get('plan'), rec.get('plan')) or 'plan hidden'} · "
         f"{len(delivered)}/{len(langs.get('requested') or [])} languages · "
         f"{rec.get('strings', 0)} strings · {rec.get('seconds', 0)}s")
