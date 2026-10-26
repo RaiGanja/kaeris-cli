@@ -150,3 +150,50 @@ jobs:
           & .\clean\Scripts\kaeris.exe --version
           if ($LASTEXITCODE -ne 0) { exit 1 }
           & .\clean\Scripts\python.exe -c "import sysconfig; print(sysconfig.get_path('scripts'))"
+
+  # The npm package (`npx kaeris check`): a port of `kaeris check` with no dependencies. The
+  # tests replay the answers the Python package gave (npm/test/baseline, corpus, pairs.json);
+  # the `suite` job above fails if those files stop matching the Python code. Node 18 is the
+  # oldest promised version.
+  npm:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {node: '18', os: ubuntu-latest}
+          - {node: '20', os: ubuntu-latest}
+          - {node: '22', os: ubuntu-latest}
+          - {node: '20', os: windows-latest}
+    defaults:
+      run:
+        working-directory: npm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Parity with the Python package
+        run: node --test
+
+      - name: The tarball installs and finds a missing key
+        shell: bash
+        run: |
+          npm pack --pack-destination "$RUNNER_TEMP"
+          mkdir -p "$RUNNER_TEMP/proj/locales"
+          cd "$RUNNER_TEMP/proj"
+          printf '{"greeting": "Hello {name}", "save": "Save"}' > locales/en.json
+          printf '{"greeting": "Hallo {name}"}' > locales/de.json
+          npm init -y > /dev/null
+          npm install --no-audit --no-fund "$RUNNER_TEMP"/kaeris-*.tgz
+          npx kaeris --version
+          out=$(npx kaeris check --source locales/en.json --langs de 2>&1 || true)
+          echo "$out"
+          echo "$out" | grep -q "save" || {
+            echo "::error::the installed tarball did not report the missing key"; exit 1; }
+          npx kaeris check --source locales/en.json --langs de --json > /dev/null && {
+            echo "::error::a missing key must exit non-zero"; exit 1; }
+          test "$(node -p "Object.keys(require('./node_modules/kaeris/package.json').dependencies || {}).length")" = "0"
