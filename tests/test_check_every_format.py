@@ -426,3 +426,13 @@ def test_a_csv_without_the_language_column_says_so(tmp_path):
     code, out = run(tmp_path / "translations.csv", "de,fr")
     assert code == 1
     assert "fr" in out and "no translations" in out, out
+
+
+def test_a_csv_translate_wrote_into_its_own_folder_is_read(tmp_path):
+    """`translate` leaves the source CSV as it was and writes the language columns to
+    translations/<name>.csv beside it."""
+    put(tmp_path, {"loc/translations.csv": 'key,en\ngreeting,"Hello, {name}"\nsave,Save changes\n',
+                   "loc/translations/translations.csv":
+                       'key,en,de\ngreeting,"Hello, {name}","Hallo, {nom}"\nsave,Save changes,Speichern\n'})
+    code, out = run(tmp_path / "loc/translations.csv")
+    assert code == 1 and "{nom}" in out, out

@@ -602,6 +602,13 @@ def cmd_check(args):
             if not source_obj:
                 err(f"No strings for the source language '{source_lang}' in {path}")
                 return 2
+            if kind == "csv":
+                # `translate` writes the CSV with its language columns beside the source, in a
+                # folder of its own (translations/<name>.csv): read those columns too.
+                _target_path.warned = True
+                written = _out_path(path, "translations", out_dir, source_lang)
+                if os.path.isfile(written) and os.path.abspath(written) != os.path.abspath(path):
+                    by_lang = {**by_lang, **fm.read_merged(written)[1]}
         elif json_like:
             source_obj = inc.load_json(path)
             if not isinstance(source_obj, dict):

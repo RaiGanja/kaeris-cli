@@ -292,7 +292,7 @@ layout). The same checks run on all of them.
 | `.po` | `msgid` (+ `msgctxt`) | each `msgstr[n]`; the header must declare as many forms as the language needs |
 | Android XML | `name` | `<plurals>` read as one ICU plural, so Japanese's single form is complete and Russian's two is not |
 | XLIFF 1.2 | trans-unit `id`: `<source>` against `<target>` | — |
-| CSV | key, one column per language (`key,en,de,…`); a blank cell is untranslated | — |
+| CSV | key, one column per language (`key,en,de,…`), in the file itself and in the `translations/<name>.csv` that `translate` writes; a blank cell is untranslated | — |
 | Fluent | message, `.attribute`, selector variant | a plural selector is checked like ICU |
 | Markdown / MDX | the numbered blocks of the document (no keys); code, URLs and tags must survive | — |
 
