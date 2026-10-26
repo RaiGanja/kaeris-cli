@@ -1,0 +1,8 @@
+{
+ "args": [
+  "--source",
+  "Localizable.xcstrings",
+  "--langs",
+  "de"
+ ]
+}

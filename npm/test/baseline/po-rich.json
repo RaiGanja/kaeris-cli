@@ -1,0 +1,63 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": false,
+   "missing": {
+    "de": [
+     "Untranslated"
+    ]
+   },
+   "extra": {},
+   "placeholder_issues": [
+    {
+     "lang": "de",
+     "key": "Open⟦ctx:verb⟧",
+     "missing": [],
+     "added": [
+      "{x}"
+     ]
+    }
+   ],
+   "missing_files": [],
+   "faults": [
+    {
+     "lang": "de",
+     "key": "Open⟦ctx:verb⟧",
+     "msg": "invented placeholder {x} (not in source)",
+     "severity": "error"
+    },
+    {
+     "lang": "de",
+     "key": "Dup⟦dup:1⟧",
+     "msg": "number 2 appears in the translation but not the source",
+     "severity": "error"
+    }
+   ],
+   "warnings": [
+    {
+     "lang": "de",
+     "msg": "inconsistent translation of \"Open\" across 2 keys: Öffnen, Aufmachen {x}",
+     "severity": "warn"
+    },
+    {
+     "lang": "de",
+     "msg": "inconsistent translation of \"Dup\" across 2 keys: Doppelt, Doppelt 2",
+     "severity": "warn"
+    },
+    {
+     "lang": "de",
+     "msg": "Multi: translation +16 characters vs source — may overflow UI",
+     "severity": "warn"
+    }
+   ]
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "✗ de: 1 missing key(s): Untranslated\n✗ de: 1 placeholder mismatch(es):\n    Open (ctx verb): missing -, added ['{x}']\n✗ de: 2 translation fault(s):\n    Open (ctx verb): invented placeholder {x} (not in source)\n    Dup (dup 1): number 2 appears in the translation but not the source\n! de: 3 warning(s):\n    : inconsistent translation of \"Open\" across 2 keys: Öffnen, Aufmachen {x}\n    : inconsistent translation of \"Dup\" across 2 keys: Doppelt, Doppelt 2\n    : Multi: translation +16 characters vs source — may overflow UI\n✗ 1 missing key, 1 placeholder mismatch, 2 translation faults\n"
+ },
+ "sarif": null
+}

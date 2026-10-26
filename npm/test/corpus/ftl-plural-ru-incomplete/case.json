@@ -1,0 +1,8 @@
+{
+ "args": [
+  "--source",
+  "en.ftl",
+  "--langs",
+  "ru"
+ ]
+}

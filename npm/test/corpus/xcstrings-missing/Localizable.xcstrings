@@ -1,0 +1,1 @@
+{"sourceLanguage": "en", "version": "1.0", "strings": {"greeting": {"localizations": {"en": {"stringUnit": {"state": "translated", "value": "Hello, %@"}}, "de": {"stringUnit": {"state": "translated", "value": "Hallo, %@"}}}}, "save": {"localizations": {"en": {"stringUnit": {"state": "translated", "value": "Save changes"}}}}}}

@@ -1,0 +1,73 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": false,
+   "missing": {},
+   "extra": {},
+   "placeholder_issues": [
+    {
+     "lang": "de",
+     "key": "quoted",
+     "missing": [
+      "{name}"
+     ],
+     "added": [
+      "{nom}"
+     ]
+    },
+    {
+     "lang": "de",
+     "key": "list.1",
+     "missing": [
+      "{x}"
+     ],
+     "added": []
+    },
+    {
+     "lang": "de",
+     "key": "map.z",
+     "missing": [
+      "{q}"
+     ],
+     "added": []
+    }
+   ],
+   "missing_files": [],
+   "faults": [
+    {
+     "lang": "de",
+     "key": "quoted",
+     "msg": "lost placeholder %{name}",
+     "severity": "error"
+    },
+    {
+     "lang": "de",
+     "key": "quoted",
+     "msg": "invented placeholder %{nom} (not in source)",
+     "severity": "error"
+    },
+    {
+     "lang": "de",
+     "key": "list.1",
+     "msg": "lost placeholder {x}",
+     "severity": "error"
+    },
+    {
+     "lang": "de",
+     "key": "map.z",
+     "msg": "lost placeholder {q}",
+     "severity": "error"
+    }
+   ],
+   "warnings": []
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "✗ de: 3 placeholder mismatch(es):\n    quoted: missing ['{name}'], added ['{nom}']\n    list.1: missing ['{x}'], added -\n    map.z: missing ['{q}'], added -\n✗ de: 4 translation fault(s):\n    quoted: lost placeholder %{name}\n    quoted: invented placeholder %{nom} (not in source)\n    list.1: lost placeholder {x}\n    map.z: lost placeholder {q}\n✗ 3 placeholder mismatches, 4 translation faults\n"
+ },
+ "sarif": null
+}

@@ -1,0 +1,27 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": false,
+   "missing": {
+    "fr": [
+     "a"
+    ]
+   },
+   "extra": {},
+   "placeholder_issues": [],
+   "missing_files": [
+    "fr"
+   ],
+   "faults": [],
+   "warnings": []
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "✓ de: complete & placeholder-safe\n✗ fr: locale file not found (fr.json)\n✗ 1 missing key\n"
+ },
+ "sarif": null
+}

@@ -1,0 +1,8 @@
+{
+ "args": [
+  "--source",
+  "res/values/strings.xml",
+  "--langs",
+  "ja"
+ ]
+}

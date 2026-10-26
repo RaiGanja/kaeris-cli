@@ -1,0 +1,8 @@
+{
+ "args": [
+  "--source",
+  "en.yml",
+  "--langs",
+  "de"
+ ]
+}

@@ -1,0 +1,8 @@
+{
+ "args": [
+  "--source",
+  "app_en.arb",
+  "--langs",
+  "de,fr"
+ ]
+}

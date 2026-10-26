@@ -1,0 +1,13 @@
+{
+ "json": {
+  "code": 2,
+  "stdout": null,
+  "stderr": "✗ Invalid JSON in kaeris.json: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)\n"
+ },
+ "human": {
+  "code": 2,
+  "stdout": "",
+  "stderr": "✗ Invalid JSON in kaeris.json: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)\n"
+ },
+ "sarif": null
+}

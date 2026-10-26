@@ -1,0 +1,10 @@
+key,en,de,fr
+greeting,"Hello, {name}","Hallo, {name}",
+multi,"Line one
+line two","Zeile eins
+Zeile zwei","Ligne"
+quote,"Say ""hi""","Sag ""hallo""",Dire
+
+formula,'=SUM(A1),'=SUMME(A1),'=SUM(A1)
+blank,Text,,Texte
+,no key,x,y

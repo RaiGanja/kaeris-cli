@@ -1,0 +1,8 @@
+{
+ "args": [
+  "--source",
+  "strings.json",
+  "--langs",
+  "de"
+ ]
+}

@@ -1,0 +1,29 @@
+{
+  "app": {
+    "title": "Meine App",
+    "greeting": "Hallo, {nom}!",
+    "items": "Sie haben {count, plural, one {# Element}}"
+  },
+  "buttons": [
+    "Speichern",
+    "Abbrechen"
+  ],
+  "price": "Nur 9,99 € heute",
+  "dollar": "Summe: {total}",
+  "rails": "Hallo %{user}",
+  "printf": "%1$s sendete %2$s Nachrichten",
+  "ios": "Öffne %@",
+  "vue": "Willkommen {user.name}",
+  "ref": "Siehe Titel",
+  "version": "Version 2.4.2",
+  "tag": "Klicke hier oder <a>dort</a>",
+  "flag": true,
+  "count": 42,
+  "empty": "",
+  "nothing": null,
+  "html": "A &amp;amp; B",
+  "multi": "Zeile eins Zeile zwei",
+  "_service": "intern",
+  "emph": "Das ist *wichtig jetzt",
+  "stale": "alt"
+}

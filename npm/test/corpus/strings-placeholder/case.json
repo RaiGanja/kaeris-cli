@@ -1,0 +1,8 @@
+{
+ "args": [
+  "--source",
+  "en.strings",
+  "--langs",
+  "de"
+ ]
+}

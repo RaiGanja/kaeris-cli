@@ -1,0 +1,25 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": true,
+   "missing": {},
+   "extra": {
+    "de": [
+     "b"
+    ]
+   },
+   "placeholder_issues": [],
+   "missing_files": [],
+   "faults": [],
+   "warnings": []
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "✗ de: 1 extra/stale key(s): b\n✗ 1 extra key (--strict)\n"
+ },
+ "sarif": null
+}

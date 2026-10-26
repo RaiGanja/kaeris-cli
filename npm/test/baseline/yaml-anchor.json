@@ -1,0 +1,13 @@
+{
+ "json": {
+  "code": 2,
+  "stdout": null,
+  "stderr": "✗ Could not read source file en.yml: line 1: YAML anchors and aliases (&x, *x) are not read (kaeris check reads the YAML that locale files use; it will not guess at the rest)\n"
+ },
+ "human": {
+  "code": 2,
+  "stdout": "",
+  "stderr": "✗ Could not read source file en.yml: line 1: YAML anchors and aliases (&x, *x) are not read (kaeris check reads the YAML that locale files use; it will not guess at the rest)\n"
+ },
+ "sarif": null
+}

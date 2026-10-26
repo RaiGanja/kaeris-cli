@@ -1,0 +1,13 @@
+{
+ "json": {
+  "code": 2,
+  "stdout": null,
+  "stderr": "✗ Could not read source file en.json: Extra data: line 1 column 12 (char 11)\n"
+ },
+ "human": {
+  "code": 2,
+  "stdout": "",
+  "stderr": "✗ Could not read source file en.json: Extra data: line 1 column 12 (char 11)\n"
+ },
+ "sarif": null
+}

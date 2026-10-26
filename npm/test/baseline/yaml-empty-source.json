@@ -1,0 +1,13 @@
+{
+ "json": {
+  "code": 2,
+  "stdout": null,
+  "stderr": "✗ Could not read source file en.yml: Invalid YAML: the YAML root must be a mapping\n"
+ },
+ "human": {
+  "code": 2,
+  "stdout": "",
+  "stderr": "✗ Could not read source file en.yml: Invalid YAML: the YAML root must be a mapping\n"
+ },
+ "sarif": null
+}

@@ -1,0 +1,13 @@
+{
+ "json": {
+  "code": 2,
+  "stdout": null,
+  "stderr": "✗ de: could not parse res/values-de/strings.xml: Invalid Android XML XML: no element found: line 1, column 38\n"
+ },
+ "human": {
+  "code": 2,
+  "stdout": "",
+  "stderr": "✗ de: could not parse res/values-de/strings.xml: Invalid Android XML XML: no element found: line 1, column 38\n"
+ },
+ "sarif": null
+}

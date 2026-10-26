@@ -1,0 +1,4 @@
+{
+  "n": "{count, plural, =0 {No files} one {# file} other {# files}}",
+  "s": "{g, select, male {He} female {She} other {They}} came"
+}

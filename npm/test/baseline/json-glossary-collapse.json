@@ -1,0 +1,28 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": false,
+   "missing": {},
+   "extra": {},
+   "placeholder_issues": [],
+   "missing_files": [],
+   "faults": [
+    {
+     "lang": "de",
+     "key": "q",
+     "msg": "translation collapsed to the glossary term \"KAERIS\" — the sentence is gone",
+     "severity": "error"
+    }
+   ],
+   "warnings": []
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "✗ de: 1 translation fault(s):\n    q: translation collapsed to the glossary term \"KAERIS\" — the sentence is gone\n✗ 1 translation fault\n"
+ },
+ "sarif": null
+}

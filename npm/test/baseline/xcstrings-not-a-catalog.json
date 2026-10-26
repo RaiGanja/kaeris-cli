@@ -1,0 +1,13 @@
+{
+ "json": {
+  "code": 2,
+  "stdout": null,
+  "stderr": "✗ Could not read String Catalog L.xcstrings: not a String Catalog: no 'strings' object\n"
+ },
+ "human": {
+  "code": 2,
+  "stdout": "",
+  "stderr": "✗ Could not read String Catalog L.xcstrings: not a String Catalog: no 'strings' object\n"
+ },
+ "sarif": null
+}

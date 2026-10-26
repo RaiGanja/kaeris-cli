@@ -1,0 +1,28 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": false,
+   "missing": {},
+   "extra": {},
+   "placeholder_issues": [],
+   "missing_files": [],
+   "faults": [
+    {
+     "lang": "ru",
+     "key": "%d file",
+     "msg": "the file declares 3 plural forms, this entry has no msgstr[2]",
+     "severity": "error"
+    }
+   ],
+   "warnings": []
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "✗ ru: 1 translation fault(s):\n    %d file: the file declares 3 plural forms, this entry has no msgstr[2]\n✗ 1 translation fault\n"
+ },
+ "sarif": null
+}

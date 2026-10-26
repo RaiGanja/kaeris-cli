@@ -1,0 +1,28 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": false,
+   "missing": {},
+   "extra": {},
+   "placeholder_issues": [],
+   "missing_files": [],
+   "faults": [
+    {
+     "lang": "ru",
+     "key": "",
+     "msg": "Plural-Forms declares nplurals=2, but ru needs 3 plural forms — the extra forms can never be selected",
+     "severity": "error"
+    }
+   ],
+   "warnings": []
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "✗ ru: 1 translation fault(s):\n    Plural-Forms declares nplurals=2, but ru needs 3 plural forms — the extra forms can never be selected\n✗ 1 translation fault\n"
+ },
+ "sarif": null
+}

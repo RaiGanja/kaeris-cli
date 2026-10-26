@@ -1,0 +1,34 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": false,
+   "missing": {},
+   "extra": {},
+   "placeholder_issues": [],
+   "missing_files": [],
+   "faults": [
+    {
+     "lang": "fr",
+     "key": "q",
+     "msg": "not a translation — the model answered the string instead of translating it",
+     "severity": "error"
+    }
+   ],
+   "warnings": [
+    {
+     "lang": "fr",
+     "msg": "q: translation +1112% vs source (typical +25%) — may overflow UI",
+     "severity": "warn"
+    }
+   ]
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "✗ fr: 1 translation fault(s):\n    q: not a translation — the model answered the string instead of translating it\n! fr: 1 warning(s):\n    : q: translation +1112% vs source (typical +25%) — may overflow UI\n✗ 1 translation fault\n"
+ },
+ "sarif": null
+}

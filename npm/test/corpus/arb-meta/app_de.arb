@@ -1,0 +1,8 @@
+{
+  "@@locale": "de",
+  "hello": "Hallo {nom}",
+  "@hello": {
+    "description": "y"
+  },
+  "bye": "Tschüss"
+}

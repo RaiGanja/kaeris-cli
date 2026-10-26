@@ -1,0 +1,32 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": false,
+   "missing": {},
+   "extra": {},
+   "placeholder_issues": [
+    {
+     "lang": "de",
+     "key": "greeting",
+     "missing": [
+      "{$name}"
+     ],
+     "added": [
+      "{$nom}"
+     ]
+    }
+   ],
+   "missing_files": [],
+   "faults": [],
+   "warnings": []
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "✗ de: 1 placeholder mismatch(es):\n    greeting: missing ['{$name}'], added ['{$nom}']\n✗ 1 placeholder mismatch\n"
+ },
+ "sarif": null
+}

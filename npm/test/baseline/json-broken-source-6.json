@@ -1,0 +1,13 @@
+{
+ "json": {
+  "code": 2,
+  "stdout": null,
+  "stderr": "✗ Could not read source file en.json: Invalid /escape: line 1 column 9 (char 8)\n"
+ },
+ "human": {
+  "code": 2,
+  "stdout": "",
+  "stderr": "✗ Could not read source file en.json: Invalid /escape: line 1 column 9 (char 8)\n"
+ },
+ "sarif": null
+}

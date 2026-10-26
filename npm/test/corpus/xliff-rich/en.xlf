@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2" xmlns:x="urn:x">
+<file original="a" source-language="en" datatype="plaintext">
+<body>
+<trans-unit id="a"><source>Hello <g id="1">bold</g> <x id="2"/></source></trans-unit>
+<trans-unit id="b"><source>Save</source></trans-unit>
+<trans-unit id="c"><source>Third {n}</source></trans-unit>
+<trans-unit><source>no id</source></trans-unit>
+<trans-unit id="d"><source>Fourth</source></trans-unit>
+</body>
+</file>
+</xliff>

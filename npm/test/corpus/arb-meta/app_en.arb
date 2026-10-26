@@ -1,0 +1,11 @@
+{
+  "@@locale": "en",
+  "hello": "Hello {name}",
+  "@hello": {
+    "description": "x",
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "bye": "Bye"
+}

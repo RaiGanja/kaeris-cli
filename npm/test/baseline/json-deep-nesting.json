@@ -1,0 +1,13 @@
+{
+ "json": {
+  "code": 2,
+  "stdout": null,
+  "stderr": "✗ \"a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.\" is nested 51 levels deep — deeper than the 50 levels KAERIS handles. Flatten that part of the file (or split it) and try again.\n"
+ },
+ "human": {
+  "code": 2,
+  "stdout": "",
+  "stderr": "✗ \"a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.\" is nested 51 levels deep — deeper than the 50 levels KAERIS handles. Flatten that part of the file (or split it) and try again.\n"
+ },
+ "sarif": null
+}

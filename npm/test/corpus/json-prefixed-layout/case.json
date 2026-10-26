@@ -1,0 +1,8 @@
+{
+ "args": [
+  "--source",
+  "messages_en.json",
+  "--langs",
+  "de"
+ ]
+}

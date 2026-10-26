@@ -1,0 +1,5 @@
+{
+  "source": "src/en.json",
+  "langs": "de",
+  "out": "i18n"
+}

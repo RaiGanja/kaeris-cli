@@ -1,0 +1,46 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": false,
+   "missing": {},
+   "extra": {},
+   "placeholder_issues": [],
+   "missing_files": [],
+   "faults": [
+    {
+     "lang": "pt",
+     "key": "a",
+     "msg": "currency changed: USD → BRL — this is a different price, not a translation",
+     "severity": "error"
+    },
+    {
+     "lang": "pt",
+     "key": "d",
+     "msg": "number 50 appears in the translation but not the source",
+     "severity": "error"
+    },
+    {
+     "lang": "pt",
+     "key": "d",
+     "msg": "number 5 from the source is missing or changed in the translation",
+     "severity": "error"
+    },
+    {
+     "lang": "pt",
+     "key": "f",
+     "msg": "currency changed: USD → EUR — this is a different price, not a translation",
+     "severity": "error"
+    }
+   ],
+   "warnings": []
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "✓ ja: complete & placeholder-safe\n✗ pt: 4 translation fault(s):\n    a: currency changed: USD → BRL — this is a different price, not a translation\n    d: number 50 appears in the translation but not the source\n    d: number 5 from the source is missing or changed in the translation\n    f: currency changed: USD → EUR — this is a different price, not a translation\n✗ 4 translation faults\n"
+ },
+ "sarif": null
+}

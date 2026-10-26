@@ -1,0 +1,30 @@
+msgid ""
+msgstr ""
+"Language: de\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: a.c:1
+msgid "Hello, %(name)s"
+msgstr "Hallo, %(name)s"
+
+msgctxt "menu"
+msgid "Open"
+msgstr "Öffnen"
+
+msgctxt "verb"
+msgid "Open"
+msgstr "Aufmachen {x}"
+
+msgid "Dup"
+msgstr "Doppelt"
+
+msgid "Dup"
+msgstr "Doppelt 2"
+
+msgid "Multi"
+msgstr ""
+"Zeile eins "
+"Zeile zwei"
+
+#~ msgid "Old"
+#~ msgstr "Alt"

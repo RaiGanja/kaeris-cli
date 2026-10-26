@@ -1,0 +1,3 @@
+de:
+  greeting: "Hallo, %{name}"
+  save: Änderungen speichern

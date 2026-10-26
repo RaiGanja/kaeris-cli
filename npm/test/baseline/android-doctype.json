@@ -1,0 +1,13 @@
+{
+ "json": {
+  "code": 2,
+  "stdout": null,
+  "stderr": "✗ Could not read source file res/values/strings.xml: Android XML must not contain DOCTYPE or ENTITY declarations\n"
+ },
+ "human": {
+  "code": 2,
+  "stdout": "",
+  "stderr": "✗ Could not read source file res/values/strings.xml: Android XML must not contain DOCTYPE or ENTITY declarations\n"
+ },
+ "sarif": null
+}

@@ -1,0 +1,13 @@
+{
+ "json": {
+  "code": 2,
+  "stdout": null,
+  "stderr": "✗ de: could not parse de.yml: Invalid YAML: line 1: a [ or { that never closes\n"
+ },
+ "human": {
+  "code": 2,
+  "stdout": "",
+  "stderr": "✗ de: could not parse de.yml: Invalid YAML: line 1: a [ or { that never closes\n"
+ },
+ "sarif": null
+}

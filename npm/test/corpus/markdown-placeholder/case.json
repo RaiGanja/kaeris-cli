@@ -1,0 +1,8 @@
+{
+ "args": [
+  "--source",
+  "en.md",
+  "--langs",
+  "de"
+ ]
+}

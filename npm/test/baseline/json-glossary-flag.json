@@ -1,0 +1,35 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": false,
+   "missing": {},
+   "extra": {},
+   "placeholder_issues": [],
+   "missing_files": [],
+   "faults": [
+    {
+     "lang": "de",
+     "key": "a",
+     "msg": "glossary term dropped: KAERIS",
+     "severity": "error"
+    }
+   ],
+   "warnings": [
+    {
+     "lang": "de",
+     "key": "b",
+     "msg": "glossary case: GitHub appears as \"github\" — a kept term keeps its exact case",
+     "severity": "warn"
+    }
+   ]
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "✗ de: 1 translation fault(s):\n    a: glossary term dropped: KAERIS\n! de: 1 warning(s):\n    b: glossary case: GitHub appears as \"github\" — a kept term keeps its exact case\n✗ 1 translation fault\n"
+ },
+ "sarif": null
+}

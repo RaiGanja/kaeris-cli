@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+  <string name="app">My app</string>
+  <string name="hi">Hello <xliff:g id="n" example="Bob">%1$s</xliff:g>!</string>
+  <string name="bold">Click <b>here</b> &amp; <i>there</i></string>
+  <string name="q">It\'s \"quoted\" \n done</string>
+  <string name="cd"><![CDATA[Some <b>cdata</b> text]]></string>
+  <string name="skip" translatable="false">Skip</string>
+  <string-array name="days">
+    <item>Mon</item>
+    <item>Tue</item>
+  </string-array>
+  <plurals name="files">
+    <item quantity="one">%d file</item>
+    <item quantity="other">%d files</item>
+  </plurals>
+  <!-- comment -->
+  <string name="empty"></string>
+</resources>

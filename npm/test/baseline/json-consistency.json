@@ -1,0 +1,27 @@
+{
+ "json": {
+  "code": 0,
+  "stdout": {
+   "ok": true,
+   "missing": {},
+   "extra": {},
+   "placeholder_issues": [],
+   "missing_files": [],
+   "faults": [],
+   "warnings": [
+    {
+     "lang": "ru",
+     "msg": "inconsistent translation of \"Cancel\" across 2 keys: Отмена, Отменить",
+     "severity": "warn"
+    }
+   ]
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 0,
+  "stdout": "",
+  "stderr": "! ru: 1 warning(s):\n    : inconsistent translation of \"Cancel\" across 2 keys: Отмена, Отменить\n! 1 warning(s) — non-blocking (use --strict to fail on them)\n"
+ },
+ "sarif": null
+}

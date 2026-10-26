@@ -1,0 +1,44 @@
+{
+ "json": {
+  "code": 1,
+  "stdout": {
+   "ok": false,
+   "missing": {
+    "de": [
+     "blank"
+    ],
+    "fr": [
+     "greeting"
+    ],
+    "es": [
+     "blank",
+     "formula",
+     "greeting",
+     "multi",
+     "quote"
+    ]
+   },
+   "extra": {},
+   "placeholder_issues": [],
+   "missing_files": [
+    "es"
+   ],
+   "faults": [],
+   "warnings": [
+    {
+     "lang": "fr",
+     "key": "multi",
+     "msg": "line breaks changed: 1 in the source, 0 in the translation",
+     "severity": "warn"
+    }
+   ]
+  },
+  "stderr": ""
+ },
+ "human": {
+  "code": 1,
+  "stdout": "",
+  "stderr": "✗ de: 1 missing key(s): blank\n✗ fr: 1 missing key(s): greeting\n! fr: 1 warning(s):\n    multi: line breaks changed: 1 in the source, 0 in the translation\n✗ es: no translations in t.csv\n✗ 7 missing keys\n"
+ },
+ "sarif": null
+}

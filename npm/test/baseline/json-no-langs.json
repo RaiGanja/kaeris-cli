@@ -1,0 +1,13 @@
+{
+ "json": {
+  "code": 2,
+  "stdout": null,
+  "stderr": "✗ No target languages given (--langs es,fr,de, or 'langs' in kaeris.json)\n"
+ },
+ "human": {
+  "code": 2,
+  "stdout": "",
+  "stderr": "✗ No target languages given (--langs es,fr,de, or 'langs' in kaeris.json)\n"
+ },
+ "sarif": null
+}

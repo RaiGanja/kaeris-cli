@@ -1,0 +1,30 @@
+{
+  "app": {
+    "title": "My app",
+    "greeting": "Hello, {name}!",
+    "items": "You have {count, plural, one {# item} other {# items}}"
+  },
+  "buttons": [
+    "Save",
+    "Cancel",
+    "Delete {n} files"
+  ],
+  "price": "Only $9.99 today",
+  "percent": "100% sure",
+  "dollar": "Total: ${total}",
+  "rails": "Hi %{user}",
+  "printf": "%1$s sent %2$d messages",
+  "ios": "Open %@",
+  "vue": "Welcome {{ user.name }}",
+  "ref": "See $t(app.title)",
+  "version": "Version 2.4.1",
+  "tag": "Click <b>here</b> or <a href=\"/x\">there</a>",
+  "flag": true,
+  "count": 42,
+  "empty": "",
+  "nothing": null,
+  "html": "A &amp; B",
+  "multi": "Line one\nLine two",
+  "_service": "internal",
+  "emph": "This is *important* now"
+}

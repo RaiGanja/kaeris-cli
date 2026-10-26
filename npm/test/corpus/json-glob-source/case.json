@@ -1,0 +1,8 @@
+{
+ "args": [
+  "--source",
+  "src/e*.json",
+  "--langs",
+  "de"
+ ]
+}
