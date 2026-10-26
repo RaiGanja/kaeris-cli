@@ -15,6 +15,7 @@ from .encoding import read_text, UnknownEncoding
 from . import incremental as inc
 from .incremental import TooDeep
 from . import check as chk
+from . import formats as fm
 from . import xcstrings as xc
 from . import tm as tmem
 from . import detectors as det
@@ -457,6 +458,15 @@ def _out_path(src_path, lang, out_dir, source_lang, lang_case="keep"):
     return _existing_case(_target_path(src_path, lang, out_dir, source_lang), lang)
 
 
+def _lproj_sibling(src_path, lang, source_lang, out_dir):
+    """Xcode's own layout: en.lproj/Localizable.strings -> de.lproj/Localizable.strings."""
+    folder = os.path.dirname(src_path)
+    if os.path.basename(folder) != f"{source_lang}.lproj":
+        return None
+    return os.path.join(out_dir or os.path.dirname(folder), f"{lang}.lproj",
+                        os.path.basename(src_path))
+
+
 def cmd_init(args):
     if os.path.isfile(CONFIG_FILENAME) and not args.force:
         warn(f"{CONFIG_FILENAME} already exists — use --force to overwrite")
@@ -539,12 +549,13 @@ def cmd_check(args):
     if not path or not os.path.isfile(path):
         err(f"Source file not found: {path or raw_path}")
         return 2
-    if not path.lower().endswith((".json", ".arb", ".xcstrings")):
-        err(f"kaeris check currently supports JSON, ARB and Xcode String Catalogs "
-            f"(got {path}) — other formats land next release")
+    kind = fm.kind_of(path)
+    if kind is None:
+        err(f"kaeris check reads {fm.SUPPORTED_TEXT} (got {path})")
         return 2
-    is_arb = path.lower().endswith(".arb")
-    is_catalog = xc.is_catalog(path)
+    is_arb = kind == "arb"
+    merged = kind in fm.MERGED
+    json_like = kind in ("json", "arb")
 
     def _strip_arb_meta(obj):
         # ARB non-translatable metadata is top-level '@'-prefixed (@@locale, @key).
@@ -561,53 +572,78 @@ def cmd_check(args):
         err("No target languages given (--langs es,fr,de, or 'langs' in kaeris.json)")
         return 2
 
-    out_dir = args.out or config.get("out") or os.path.dirname(os.path.abspath(path))
+    # None means "where `translate` writes by default": the source's own folder layout decides
+    # (res/values -> res/values-<lang>, locales/en -> locales/<lang>). Defaulting to the
+    # source's folder looked for res/values/values-de/strings.xml.
+    out_dir = args.out or config.get("out") or None
     source_lang = config.get("source_lang") or "en"
     _target_path.warned = False  # warn at most once per check run
 
     def _resolve_target(lang):
-        # No explicit --pattern: resolve exactly like `kaeris translate` writes, so a
-        # namespace layout (locales/<lang>/translation.json, the shipped i18next preset)
-        # is found instead of a phantom locales/<lang>.json. An explicit --pattern is an
-        # override for non-standard layouts.
         if args.pattern:
-            return os.path.join(out_dir, args.pattern.format(lang=lang))
-        return _out_path(path, lang, out_dir, source_lang)
+            return os.path.join(out_dir or os.path.dirname(os.path.abspath(path)),
+                                args.pattern.format(lang=lang))
+        found = _out_path(path, lang, out_dir, source_lang)
+        if not os.path.isfile(found):
+            # Xcode keeps one folder per language: en.lproj/Localizable.strings -> de.lproj/.
+            sibling = _lproj_sibling(path, lang, source_lang, out_dir)
+            if sibling and os.path.isfile(sibling):
+                return sibling
+        return found
 
-    # A String Catalog holds the source AND every translation in one document, so there is
-    # no per-language file to resolve — both sides come out of the same parse.
-    catalog = None
-    if is_catalog:
-        try:
-            cat_source_lang, catalog = xc.load(path)
-        except (OSError, ValueError) as e:
-            err(f"Could not read String Catalog {path}: {e}{_hint(e)}")
-            return 2
-        source_lang = config.get("source_lang") or cat_source_lang
-        source_obj = catalog.get(source_lang) or {}
-        if not source_obj:
-            err(f"No strings for the source language '{source_lang}' in {path}")
-            return 2
-    else:
-        try:
+    # One file holds the source AND every language (a String Catalog, a CSV with a column per
+    # language): there is no per-language file to resolve — both sides come out of one parse.
+    by_lang = None
+    try:
+        if merged:
+            file_lang, by_lang = fm.read_merged(path)
+            source_lang = config.get("source_lang") or file_lang
+            source_obj = fm.find_lang(by_lang, source_lang) or {}
+            if not source_obj:
+                err(f"No strings for the source language '{source_lang}' in {path}")
+                return 2
+        elif json_like:
             source_obj = inc.load_json(path)
-        except (OSError, ValueError) as e:
-            err(f"Could not read source file {path}: {e}{_hint(e)}")
-            return 2
-        if not isinstance(source_obj, dict):
-            err(f"Invalid source file {path}: expected a JSON object")
-            return 2
-        if is_arb:
-            source_obj = _strip_arb_meta(source_obj)
+            if not isinstance(source_obj, dict):
+                err(f"Invalid source file {path}: expected a JSON object")
+                return 2
+            if is_arb:
+                source_obj = _strip_arb_meta(source_obj)
+        else:
+            source_obj = fm.read_one(path, "source")
+            if not source_obj:
+                err(f"No translatable strings found in {path}")
+                return 2
+    except (OSError, ValueError) as e:
+        what = "String Catalog" if kind == "xcstrings" else "source file"
+        err(f"Could not read {what} {path}: {e}{_hint(e)}")
+        return 2
+    if not args.json:
+        for note in getattr(source_obj, "notes", []):
+            warn(f"{path}: {note['msg']}")
 
     def load_target(lang):
-        if is_catalog:
-            # Absent from the catalog is the same as an absent file: every key is missing,
-            # which is exactly what a developer who added a language wants to be told.
-            return catalog.get(lang)
+        if merged:
+            # Absent from the file is the same as an absent file: every key is missing, which
+            # is exactly what a developer who added a language wants to be told.
+            return fm.find_lang(by_lang, lang)
         target_path = _resolve_target(lang)
         if not os.path.isfile(target_path):
             return None
+        if not json_like:
+            try:
+                obj = fm.read_one(target_path, "target", lang)
+            except (OSError, ValueError) as e:
+                raise _BadTarget(f"{lang}: could not parse {target_path}: {e}{_hint(e)}")
+            if kind == "markdown" and len(obj) != len(source_obj):
+                # A document has no keys: its blocks are paired by position, so a block added,
+                # merged or lost anywhere shifts every one after it.
+                obj.skip_pairwise = True
+                obj.notes.append({"key": "", "severity": "error",
+                                  "msg": f"{len(obj)} translatable blocks, the source has "
+                                         f"{len(source_obj)}: a heading, paragraph, list item or "
+                                         f"table cell was added, merged or lost"})
+            return obj
         try:
             obj = inc.load_json(target_path)
         except (OSError, ValueError) as e:
@@ -656,7 +692,8 @@ def cmd_check(args):
     if not args.json:
         for lang in langs:
             if lang in result["missing_files"]:
-                err(f"{lang}: locale file not found ({_resolve_target(lang)})")
+                err(f"{lang}: no translations in {path}" if merged
+                    else f"{lang}: locale file not found ({_resolve_target(lang)})")
                 continue
             missing = result["missing"].get(lang) or []
             extra = result["extra"].get(lang) or []
@@ -679,7 +716,8 @@ def cmd_check(args):
             if lang_faults:
                 err(f"{lang}: {len(lang_faults)} translation fault(s):")
                 for f in lang_faults:
-                    print(_pretty_key(f"    {f.get('key', '')}: {f['msg']}"), file=sys.stderr)
+                    print(_pretty_key(f"    {f['key']}: {f['msg']}" if f.get("key")
+                                      else f"    {f['msg']}"), file=sys.stderr)
             if lang_warns:
                 level = err if args.strict else warn
                 level(f"{lang}: {len(lang_warns)} warning(s):")

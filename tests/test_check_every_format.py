@@ -255,12 +255,23 @@ def test_android_plurals_japanese_has_only_other_and_that_is_complete(tmp_path):
     assert code == 0, out
 
 
-def test_android_plurals_a_lost_count_in_a_form_fails(tmp_path):
+def test_android_plurals_a_singular_without_the_number_is_correct(tmp_path):
     put(tmp_path, {
         "res/values/strings.xml": ANDROID_PLURALS % _items([("one", "%d file"), ("other", "%d files")]),
-        "res/values-de/strings.xml": ANDROID_PLURALS % _items([("one", "%d Datei"), ("other", "Dateien")])})
+        "res/values-de/strings.xml": ANDROID_PLURALS % _items([("one", "Eine Datei"), ("other", "%d Dateien")])})
+    code, out = run(tmp_path / "res/values/strings.xml", "de")
+    assert code == 0, out
+
+
+def test_android_plurals_a_lost_second_placeholder_in_a_form_fails(tmp_path):
+    put(tmp_path, {
+        "res/values/strings.xml": ANDROID_PLURALS % _items(
+            [("one", "%1$s sent %2$d file"), ("other", "%1$s sent %2$d files")]),
+        "res/values-de/strings.xml": ANDROID_PLURALS % _items(
+            [("one", "%1$s sendete %2$d Datei"), ("other", "%1$s sendete Dateien")])})
     code, out = run(tmp_path / "res/values/strings.xml", "de")
     assert code == 1, out
+    assert "%2$d" in out, out
 
 
 PO_PLURAL_SRC = ('msgid ""\nmsgstr ""\n"Language: en\\n"\n"Plural-Forms: nplurals=2; plural=(n != 1);\\n"\n\n'
@@ -281,6 +292,22 @@ def test_po_plurals_three_russian_forms_pass(tmp_path):
                    "ru.po": po_ru(3, ["%d файл", "%d файла", "%d файлов"])})
     code, out = run(tmp_path / "en.po", "ru")
     assert code == 0, out
+
+
+def test_po_plurals_a_singular_without_the_number_is_correct(tmp_path):
+    de = ('msgid ""\nmsgstr ""\n"Language: de\\n"\n"Plural-Forms: nplurals=2; plural=(n != 1);\\n"\n\n'
+          'msgid "%d file"\nmsgid_plural "%d files"\nmsgstr[0] "Eine Datei"\nmsgstr[1] "%d Dateien"\n')
+    put(tmp_path, {"en.po": PO_PLURAL_SRC, "de.po": de})
+    code, out = run(tmp_path / "en.po", "de")
+    assert code == 0, out
+
+
+def test_po_plurals_a_lost_count_in_the_plural_form_fails(tmp_path):
+    de = ('msgid ""\nmsgstr ""\n"Language: de\\n"\n"Plural-Forms: nplurals=2; plural=(n != 1);\\n"\n\n'
+          'msgid "%d file"\nmsgid_plural "%d files"\nmsgstr[0] "Eine Datei"\nmsgstr[1] "Dateien"\n')
+    put(tmp_path, {"en.po": PO_PLURAL_SRC, "de.po": de})
+    code, out = run(tmp_path / "en.po", "de")
+    assert code == 1, out
 
 
 def test_po_plurals_a_header_that_declares_two_forms_for_russian_fails(tmp_path):
