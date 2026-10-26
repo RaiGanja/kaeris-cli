@@ -1,9 +1,11 @@
 """Zero-dependency API client for the KAERIS i18n service (stdlib only)."""
 
+import http.client
 import io
 import json
 import os
 import random
+import re
 import time
 import uuid
 import zipfile
@@ -182,6 +184,26 @@ MAX_RETRY_WAIT = 60
 # actually fires on reads is the edge's per-address one: it clears within about a minute, and
 # two runs side by side from one address trip it within seconds (a customer run, 26.10.2026).
 READ_RETRIES = 5
+# A connection that drops mid-run (reset, aborted, closed without an answer, cut short, timed
+# out) is a network failure, not a verdict. Reads are asked again NET_RETRIES times, pausing
+# 2, 4, 8 ... up to NET_MAX_WAIT seconds: a job already running keeps running on the server.
+NET_RETRIES = 5
+NET_MAX_WAIT = 30
+_DROPPED = (ConnectionError, TimeoutError, http.client.RemoteDisconnected,
+            http.client.IncompleteRead, http.client.BadStatusLine)
+
+
+def _dropped(e):
+    """True when `e` is a broken or timed-out connection, bare or wrapped by urllib."""
+    if isinstance(e, urllib.error.URLError) and not isinstance(e, urllib.error.HTTPError):
+        e = e.reason
+    return isinstance(e, _DROPPED)
+
+
+def _net_wait(attempt):
+    return min(NET_MAX_WAIT, 2 * 2 ** attempt) + random.random()
+
+
 # Once a 429 was seen, polling slows down by this factor, up to MAX_POLL_SLOWDOWN.
 POLL_SLOWDOWN = 2.0
 MAX_POLL_SLOWDOWN = 8.0
@@ -201,6 +223,16 @@ def _still_rate_limited(detail, waited):
     return (f"{detail} — still rate-limited after {waited:.0f}s of waiting. Too many requests "
             "from this address: is another kaeris run going at the same time? Run them one "
             "after another, or lower --jobs.")
+
+
+def _connection_lost(api_url, path, tries, e):
+    job = re.search(r"/api/(?:status|receipt|preview|download)/([^/?]+)", path)
+    detail = e.reason if isinstance(e, urllib.error.URLError) else e
+    kept = (f"The job {job.group(1)} is still on the server; nothing is sent twice. "
+            if job else "")
+    return (f"Lost the connection to {api_url} ({type(detail).__name__}) after {tries} tries. "
+            f"{kept}Run the same command again with --only-new to continue from what is "
+            "already translated.")
 
 
 class KaerisClient:
@@ -256,8 +288,15 @@ class KaerisClient:
                     error = KaerisError(self._err_message(e))
                 error.code = e.code
                 raise error
-            except urllib.error.URLError as e:
-                raise KaerisError(f"Cannot reach {self.api_url}: {e.reason}")
+            except (urllib.error.URLError, OSError, http.client.HTTPException) as e:
+                if not _dropped(e):
+                    if isinstance(e, urllib.error.URLError):
+                        raise KaerisError(f"Cannot reach {self.api_url}: {e.reason}")
+                    raise
+                if attempt < NET_RETRIES:
+                    time.sleep(_net_wait(attempt))
+                    continue
+                raise KaerisError(_connection_lost(self.api_url, path, attempt + 1, e))
 
     @staticmethod
     def _err_message(e):
@@ -389,8 +428,22 @@ class KaerisClient:
                 if e.code == 429:
                     raise KaerisError(_still_rate_limited(self._err_message(e), waited))
                 raise KaerisError(self._err_message(e))
-            except urllib.error.URLError as e:
-                raise KaerisError(f"Cannot reach {self.api_url}: {e.reason}")
+            except (urllib.error.URLError, OSError, http.client.HTTPException) as e:
+                reason = e.reason if isinstance(e, urllib.error.URLError) else e
+                if isinstance(reason, ConnectionRefusedError) and attempt < NET_RETRIES:
+                    # Never connected, so the job was not started: safe to try again.
+                    time.sleep(_net_wait(attempt))
+                    continue
+                if _dropped(e):
+                    # The file may have arrived and the job started (and be paid for): never
+                    # send it a second time on a guess.
+                    raise KaerisError(
+                        f"Lost the connection to {self.api_url} ({type(reason).__name__}) while "
+                        "sending the file; it may have reached the server, so it was not sent "
+                        "again. Run the same command again with --only-new to continue.")
+                if isinstance(e, urllib.error.URLError):
+                    raise KaerisError(f"Cannot reach {self.api_url}: {e.reason}")
+                raise
         job_id = data.get("job_id")
         if not job_id:
             raise KaerisError(f"No job_id in response: {data}")

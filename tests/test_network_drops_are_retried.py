@@ -115,10 +115,17 @@ def test_when_the_attempts_run_out_the_job_is_named_and_the_advice_is_given(monk
 
 def test_the_cli_ends_with_a_message_and_a_failing_code_not_a_traceback(monkeypatch, tmp_path,
                                                                         capsys):
-    _script(monkeypatch, [
-        json.dumps({"de": "German"}).encode(),                       # /api/languages
-        json.dumps({"job_id": "J5", "edit_token": "t"}).encode(),    # submit
-    ] + [ConnectionResetError(10054, "r")] * 50)
+    def routed(req, timeout=None):
+        url = req.full_url
+        if url.endswith("/api/languages"):
+            return _Body(json.dumps({"de": "German"}).encode())
+        if url.endswith("/api/translate"):
+            return _Body(json.dumps({"job_id": "J5", "edit_token": "t"}).encode())
+        if "/api/status/" in url:
+            return _Body(ConnectionResetError(10054, "r"))
+        return _Body(b"{}")
+    monkeypatch.setattr(C, "_urlopen", routed)
+    monkeypatch.setattr(C.time, "sleep", lambda s: None)
     (tmp_path / "en.json").write_text('{"a": "Hello"}', encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     code = K.main(["translate", "en.json", "--langs", "de", "--quiet"])
