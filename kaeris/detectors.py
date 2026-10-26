@@ -818,6 +818,45 @@ def _currencies_in(text: str) -> set:
     return found
 
 
+# The currency anywhere in a translation, not only glued to a number (U7, 26.10.2026): a
+# translation keeps the source's dollar when it says "15 bin $", "15 k$", "50 đô la" or
+# "15 тисяч доларів". 19 lines of the 26.10 run were told "currency dropped" for exactly
+# that, and that noise is what buries the real "$15k → 15.000 €". Stems, so case endings
+# count ("dolarów", "δολαρίων"). "$" that belongs to a placeholder is not money: `$t(key)`,
+# `${name}`, `%1$s`.
+_CURRENCY_ANYWHERE = [
+    (re.compile(r"R\$|US\$|CA\$|NZ\$|HK\$|A\$|S\$"), None),
+    (re.compile(r"(?<!\d)\$(?![{(A-Za-z])|(?<=\d)\$(?![A-Za-z])"), "USD"),
+    (re.compile("€"), "EUR"), (re.compile("£"), "GBP"), (re.compile("₽"), "RUB"),
+    (re.compile("₴"), "UAH"), (re.compile("₹"), "INR"), (re.compile("₩"), "KRW"),
+    (re.compile("₺"), "TRY"), (re.compile("₫"), "VND"), (re.compile("₪"), "ILS"),
+    (re.compile("zł"), "PLN"), (re.compile("Kč"), "CZK"),
+    (re.compile(r"\b(?:USD|EUR|GBP|RUB|UAH|BRL|PLN|CZK|CHF|INR|KRW|TRY|CAD|AUD)\b"), None),
+    (re.compile(r"(?i)\b(?:doll[aá]r|d[oó]lar|dol[aá]r|dolār|doler|dolyar|dola\b)\w*"
+                r"|доллар|долар|δολάρι|δολαρ|دولار|دلار|דולר|डॉलर|ডলার|ดอลลาร์|đô la"
+                r"|ドル|美元|美金|달러"), "USD"),
+    (re.compile(r"(?i)\b(?:euro|euros|eura|eur|euró|eurót|eurot|euroa|euron|eurolla|euroja"
+                r"|eurų|euras|eurai|eiro|eiras|evro|evra|evrov|avro|yuro)\b"
+                r"|евро|євро|ευρώ|يورو|یورو|יורו|यूरो|ইউরো|ยูโร|ユーロ|欧元|歐元|유로"), "EUR"),
+]
+_CODE_CURRENCY = {"R$": "BRL", "US$": "USD", "CA$": "CAD", "NZ$": "NZD", "HK$": "HKD",
+                  "A$": "AUD", "S$": "SGD"}
+
+
+def _currencies_named(text: str) -> set:
+    """Every currency the string names anywhere — symbol, ISO code or word."""
+    text = text or ""
+    found = set()
+    claimed = bytearray(len(text))
+    for rx, cur in _CURRENCY_ANYWHERE:
+        for m in rx.finditer(text):
+            if claimed[m.start()]:
+                continue
+            claimed[m.start():m.end()] = b"\x01" * (m.end() - m.start())
+            found.add(cur or _CODE_CURRENCY.get(m.group(0)) or m.group(0).upper())
+    return found
+
+
 def _currency_faults(original: str, translated: str) -> list[str]:
     """The translation quotes a different currency than the source did.
 
@@ -827,8 +866,9 @@ def _currency_faults(original: str, translated: str) -> list[str]:
     moved was the symbol in front of it.
 
     Deliberately blind to POSITION: "79 $" is correct French typography for "$79", and a
-    detector that flagged it would be wrong more often than right. Symbol and ISO code
-    compare equal for the same reason.
+    detector that flagged it would be wrong more often than right. Symbol, ISO code and the
+    word in the target language compare equal for the same reason (U7): "$50" is kept by
+    "50 USD", "50 $" and «50 доларів», and changed by «50 евро».
     """
     src = _currencies_in(original)
     tgt = _currencies_in(translated)
@@ -838,11 +878,15 @@ def _currency_faults(original: str, translated: str) -> list[str]:
         return []
     def _show(cs):
         return ", ".join(sorted(cs)) if cs else "none"
-    if src and not tgt:
-        return [f"currency dropped — the source priced this in {_show(src)}, the translation has no currency"]
     if tgt and not src:
         return [f"currency invented — the translation quotes {_show(tgt)}, the source quoted none"]
-    return [f"currency changed: {_show(src)} → {_show(tgt)} — this is a different price, not a translation"]
+    present = tgt | _currencies_named(translated)
+    missing = src - present
+    if not missing and not (tgt - src):
+        return []
+    if missing and not (present - src):
+        return [f"currency dropped — the source priced this in {_show(src)}, the translation has no currency"]
+    return [f"currency changed: {_show(src)} → {_show(present - src or tgt)} — this is a different price, not a translation"]
 
 
 def _lost_glossary(original: str, translated: str, glossary: list[str] | None) -> list[str]:
