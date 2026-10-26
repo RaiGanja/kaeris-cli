@@ -21,6 +21,30 @@ pip install kaeris
 pipx run kaeris --help
 ```
 
+### Windows: `kaeris` is not recognized
+
+`pip` puts `kaeris.exe` into Python's `Scripts` folder, and on Windows that folder is often not
+on `PATH` — with the Python install manager (`pythoncore-3.14-64`) it never is. pip says so
+in a yellow `WARNING: The script kaeris.exe is installed in '…\Scripts' which is not on PATH`.
+
+Every command works without it — run the module through Python instead:
+
+```powershell
+python -m kaeris translate locales/en.json --langs de,fr
+py -m kaeris --version
+```
+
+To type plain `kaeris`, add the folder to your user `PATH` once. This prints the folder:
+
+```powershell
+python -c "import sysconfig; print(sysconfig.get_path('scripts'))"
+```
+
+(after a per-user pip install it is `python -c "import sysconfig; print(sysconfig.get_path('scripts', 'nt_user'))"`).
+Add it in *Settings → System → About → Advanced system settings → Environment Variables →
+Path (your user) → New*, then open a new terminal. `pipx install kaeris` is the other way: pipx
+keeps its own folder on `PATH` (`pipx ensurepath`).
+
 ## Config file (`kaeris.json`) — set it up once, forget it
 
 ```bash
@@ -341,6 +365,9 @@ Anything not passed falls back to `kaeris.json`, then to the built-in default.
 | `--verify` | back-translation and meaning check for your review; prints `⚠ meaning:` lines and writes `verify.json` |
 | `--back-lang en` | language to back-translate into with `--verify` |
 | `--translate-service-keys` | also translate keys that start with `_` (`"_status"`); by default they are copied through untouched in JSON, YAML and ARB |
+| `--digits native\|latin` | digits in the result: `native` (default) keeps what the language writes (fa ۲۰۲۷, bn ২০২৭), `latin` rewrites them to 0-9; placeholders are left as they are |
+| `--lang-case keep\|lower` | case of the language code in new file and folder names (`zh-Hant.json` or `zh-hant.json`); a file or folder that already exists in another case is always written under its own name |
+| `--jobs N` | jobs kept running at once (default 4): several files side by side, and with `--only-new` the languages of one file; results are still written and reported in order. `--jobs 1` sends one at a time |
 | `--quiet` | no progress output |
 | `--receipt PATH` | write a JSON record of the run — counts and settings only, no strings |
 | `--tm PATH` | project translation memory file (default `kaeris-tm.json` next to the source) |

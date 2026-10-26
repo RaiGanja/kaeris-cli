@@ -3,6 +3,7 @@
 import argparse
 import re
 import glob
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import sys
@@ -16,6 +17,7 @@ from . import check as chk
 from . import xcstrings as xc
 from . import tm as tmem
 from . import detectors as det
+from . import digits as dg
 
 CONFIG_FILENAME = "kaeris.json"
 
@@ -397,6 +399,42 @@ def _target_path(src_path, lang, out_dir, source_lang):
 _target_path.warned = False
 
 
+LANG_CASES = ("keep", "lower")
+
+
+def _existing_case(path, lang):
+    """`path`, with each part that names `lang` spelled the way it already is on disk. The
+    server names its files after the language code as the API spells it (`zh-Hant.json`,
+    `devlog/zh-Hant/`); a project that already has `zh-hant.json` got a second file beside it
+    on Linux, and its own file renamed on Windows (client report, 0.2.31). Only the parts that
+    carry the language are looked at, and an exact match always wins, so two files that differ
+    only in case are never confused and nobody's other folders change."""
+    drive, rest = os.path.splitdrive(os.path.normpath(path))
+    parts = rest.split(os.sep)
+    want = lang.lower()
+    for i, part in enumerate(parts):
+        if not part or want not in part.lower():
+            continue
+        parent = drive + (os.sep.join(parts[:i]) or (os.sep if rest.startswith(os.sep) else "."))
+        try:
+            names = os.listdir(parent)
+        except OSError:
+            break                      # nothing below a folder that does not exist yet
+        if part in names:
+            continue
+        same = [n for n in names if n.lower() == part.lower()]
+        if len(same) == 1:
+            parts[i] = same[0]
+    return drive + os.sep.join(parts)
+
+
+def _out_path(src_path, lang, out_dir, source_lang, lang_case="keep"):
+    """Where `lang`'s translation of `src_path` goes: _target_path, in the project's own case."""
+    if lang_case == "lower":
+        lang = lang.lower()
+    return _existing_case(_target_path(src_path, lang, out_dir, source_lang), lang)
+
+
 def cmd_init(args):
     if os.path.isfile(CONFIG_FILENAME) and not args.force:
         warn(f"{CONFIG_FILENAME} already exists — use --force to overwrite")
@@ -512,7 +550,7 @@ def cmd_check(args):
         # override for non-standard layouts.
         if args.pattern:
             return os.path.join(out_dir, args.pattern.format(lang=lang))
-        return _target_path(path, lang, out_dir, source_lang)
+        return _out_path(path, lang, out_dir, source_lang)
 
     # A String Catalog holds the source AND every translation in one document, so there is
     # no per-language file to resolve — both sides come out of the same parse.
@@ -659,7 +697,9 @@ def cmd_check(args):
     return 1 if fail else 0
 
 
-def _progress_printer():
+def _progress_printer(label=""):
+    """Progress lines for one job. With several jobs in flight their lines interleave, so each
+    names its file (or language) — a bare "40%  ja" no longer says whose."""
     last = [-1]
     def show(status):
         total = status.get("total") or 0
@@ -667,9 +707,44 @@ def _progress_printer():
         if total and done != last[0]:
             pct = int(done / total * 100)
             lang = status.get("current_lang") or ""
-            print(_c("→", "36") + f" {pct:3}%  {lang}", file=sys.stderr)
+            where = f"{label}  {lang}" if label else lang
+            print(_c("→", "36") + f" {pct:3}%  {where}", file=sys.stderr)
             last[0] = done
     return show
+
+
+# How many jobs the CLI keeps in flight at once. The server runs each job with its own share
+# of model calls and caps the total itself, so this is about not sitting idle, not about
+# pushing the provider: a run over en.json and three pages sent them one after another and
+# spent most of its 23-26 minutes waiting (client report, 0.2.31).
+DEFAULT_JOBS = 4
+
+
+def _jobs(args):
+    try:
+        return max(1, int(getattr(args, "jobs", None) or DEFAULT_JOBS))
+    except (TypeError, ValueError):
+        return DEFAULT_JOBS
+
+
+def _run_job(client, fname, content, langs, args, reuse=None, label=""):
+    """Submit one job, wait for it, fetch the archive: the part that only waits on the server,
+    so it can run beside other jobs. Returns (job, status, members)."""
+    job = client.submit(fname, content, langs, _glossary(args), reuse=reuse,
+                        verify=args.verify, back_lang=args.back_lang,
+                        tone=_tone(args), icu=args.icu,
+                        app_context=_app_context(args),
+                        **_service_keys_opt(args))
+    status = client.poll(job, on_progress=None if args.quiet else _progress_printer(label))
+    return job, status, client.download(job)
+
+
+def _outcome(future):
+    """(value, None) or (None, KaerisError) — so a job that failed is reported in its turn."""
+    try:
+        return future.result(), None
+    except KaerisError as e:
+        return None, e
 
 
 def _show_demo_notice(client):
@@ -722,6 +797,11 @@ def cmd_translate(args):
     args.lock = args.lock or config.get("lock")
     args.out = args.out or config.get("out")
     args.source_lang = args.source_lang or config.get("source_lang") or "en"
+    args.jobs = args.jobs or config.get("jobs")
+    args.digits = args.digits or (config.get("digits") if config.get("digits") in dg.MODES
+                                  else "native")
+    args.lang_case = args.lang_case or (config.get("lang_case")
+                                        if config.get("lang_case") in LANG_CASES else "keep")
 
     if args.out:
         os.makedirs(args.out, exist_ok=True)
@@ -741,15 +821,31 @@ def cmd_translate(args):
     args.verify_back = {}
     _GLOSSARY_SEEN["found"].clear()
     _GLOSSARY_SEEN["absent"].clear()
-    for path in files:
-        if multi:
-            info(f"── {os.path.relpath(path)} ──")
-        try:
-            code = _translate_one(client, path, langs, args)
-        except KaerisError as e:
-            err(str(e))
-            code = 1
-        exit_code = max(exit_code, code)
+    # Whole-file jobs go to the server side by side (up to --jobs at once); what they wrote,
+    # what QA found and what they cost is still reported file by file, in order. --only-new
+    # files run in their turn — they already send one job per language, side by side.
+    with ThreadPoolExecutor(max_workers=_jobs(args)) as pool:
+        pending = {}
+        for path in (files if multi else []):
+            if not _incremental(path, args):
+                try:
+                    pending[path] = _start_one(client, pool, path, langs, args,
+                                               label=os.path.basename(path) if multi else "")
+                except KaerisError as e:
+                    pending[path] = e
+        for path in files:
+            if multi:
+                info(f"── {os.path.relpath(path)} ──")
+            try:
+                ticket = pending.get(path)
+                if isinstance(ticket, KaerisError):
+                    raise ticket
+                code = (_finish_one(client, ticket, args) if ticket is not None
+                        else _translate_one(client, path, langs, args))
+            except KaerisError as e:
+                err(str(e))
+                code = 1
+            exit_code = max(exit_code, code)
     _write_verify(args, files)
     _say_absent_glossary()
     # What the run cost of the month, once per invocation rather than once per file — and here
@@ -841,23 +937,35 @@ def _tm_commit(memory, tm_path, source_flat, preview, sig):
          f"{os.path.basename(tm_path)}")
 
 
+def _incremental(path, args):
+    """True when this file goes through --only-new (JSON and ARB); other formats warn and are
+    translated whole."""
+    if not args.only_new:
+        return False
+    if path.lower().endswith((".json", ".arb")):
+        return True
+    ext = os.path.splitext(path)[1]
+    warn(f"--only-new supports JSON/ARB only (zero-dependency CLI); "
+         f"translating the whole {ext} file instead")
+    return False
+
+
 def _translate_one(client, path, langs, args):
     """Translate a single resolved source file. Returns 0 (clean), 3 (some
     languages fell back to source text) or 1 (a per-file error — the caller
     keeps going to the next file rather than aborting the whole run)."""
+    if _incremental(path, args):
+        return _translate_incremental(client, path, args.out, langs, args)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return _finish_one(client, _start_one(client, pool, path, langs, args), args)
+
+
+def _start_one(client, pool, path, langs, args, label=""):
+    """Everything up to the job being on the server: read the file, look it up in the project
+    memory, submit. Returns a ticket for _finish_one; the waiting happens in `pool`."""
     fname = os.path.basename(path)
-    incremental_ok = fname.lower().endswith((".json", ".arb"))
     display_out = args.out or os.path.dirname(os.path.abspath(path))
     os.makedirs(display_out, exist_ok=True)
-
-    # ── incremental (delta) mode — JSON and ARB (ARB is plain JSON) ───────────
-    if args.only_new:
-        if not incremental_ok:
-            ext = os.path.splitext(fname)[1]
-            warn(f"--only-new supports JSON/ARB only (zero-dependency CLI); "
-                 f"translating the whole {ext} file instead")
-        else:
-            return _translate_incremental(client, path, args.out, langs, args)
 
     with open(path, "rb") as f:
         content = f.read()
@@ -866,10 +974,6 @@ def _translate_one(client, path, langs, args):
     # file it lived in last time. The API skips those and does not charge for them.
     memory, tm_path = _tm_open(args, path)
     sig = _tm_signature(args, client) if memory is not None else ""
-    # One job per language here, so one receipt per language. --receipt used to write nothing
-    # at all on this path: a documented flag that silently does nothing is worse than one that
-    # does not exist.
-    receipts = []
     source_flat = {}
     if memory is not None:
         try:
@@ -882,14 +986,20 @@ def _translate_one(client, path, langs, args):
         info(f"Project memory: {n_reused} string/language pair(s) reused, not re-translated")
 
     info(f"Translating {fname} → {', '.join(langs)}")
-    job = client.submit(fname, content, langs, _glossary(args), reuse=reuse,
-                        verify=args.verify, back_lang=args.back_lang,
-                        tone=_tone(args), icu=args.icu,
-                        app_context=_app_context(args),
-                        **_service_keys_opt(args))
-    status = client.poll(job, on_progress=None if args.quiet else _progress_printer())
-    members = client.download(job)
-    written = _write_members(members, path, args.out, args.source_lang)
+    future = pool.submit(_run_job, client, fname, content, langs, args, reuse, label)
+    return {"path": path, "future": future, "tm_path": tm_path, "sig": sig,
+            "memory": memory is not None, "source_flat": source_flat}
+
+
+def _finish_one(client, ticket, args):
+    """Wait for the job a ticket stands for, then write, check and report it."""
+    path = ticket["path"]
+    result, error = _outcome(ticket["future"])
+    if error is not None:
+        raise error
+    job, status, members = result
+    written = _write_members(members, path, args.out, args.source_lang,
+                             digits=args.digits, lang_case=args.lang_case)
     # Named from where the files actually went: the source folder was printed here even when
     # every file landed in work/<lang>/ (client report 9).
     dirs = {os.path.dirname(os.path.abspath(w)) for w in written}
@@ -898,9 +1008,12 @@ def _translate_one(client, path, langs, args):
         print(w)
     # Translation QA — placeholder loss + UI-overflow (free), plus back-translation if --verify
     data = _show_qa(client, job, args, path)
-    if memory is not None:
-        _tm_commit(memory, tm_path, source_flat or (data or {}).get("_source") or {},
-                   data, sig)
+    if ticket["memory"]:
+        # Read again rather than reuse what was loaded before the job: with several files in
+        # flight and one --tm, another file may have saved its strings in the meantime.
+        _tm_commit(tmem.load(ticket["tm_path"]), ticket["tm_path"],
+                   ticket["source_flat"] or (data or {}).get("_source") or {},
+                   data, ticket["sig"])
     rec = _show_receipt(client, job)
     if rec and getattr(args, "receipt", None):
         write_atomic(args.receipt, json.dumps(rec, ensure_ascii=False, indent=2))
@@ -1101,8 +1214,13 @@ def _translate_incremental(client, path, out_dir, langs, args):
     any_work = False
     unverified_by_lang: dict[str, set] = {}
 
+    # Every language is its own job, and they do not depend on each other: send them side by
+    # side (up to --jobs), then merge and report in language order, exactly as before.
+    work = []
+    pool = ThreadPoolExecutor(max_workers=_jobs(args))
     for lang in langs:
-        target_path = _target_path(path, lang, out_dir, args.source_lang)
+        target_path = _out_path(path, lang, out_dir, args.source_lang,
+                                getattr(args, "lang_case", "keep"))
         os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
         existing = inc.load_json(target_path) if os.path.isfile(target_path) else {}
         existing_flat = inc.flatten(existing) if existing else {}
@@ -1133,14 +1251,27 @@ def _translate_incremental(client, path, out_dir, langs, args):
         reuse, n_reused = _tm_reuse(memory, todo, [lang], sig)
         if n_reused:
             info(f"{lang}: {n_reused} of them come from the project memory, not the model")
-        job = client.submit(os.path.basename(path), content, [lang], _glossary(args),
-                            tone=_tone(args), icu=args.icu, reuse=reuse,
-                            verify=args.verify, back_lang=args.back_lang,
-                            app_context=_app_context(args),
-                            **_service_keys_opt(args))
-        status = client.poll(job, on_progress=None if args.quiet else _progress_printer())
-        members = client.download(job)
+        future = pool.submit(_run_job, client, os.path.basename(path), content, [lang], args,
+                             reuse, lang if len(langs) > 1 else "")
+        work.append((lang, target_path, existing, todo, future))
+    pool.shutdown(wait=False)
+
+    job_failed = False
+    for lang, target_path, existing, todo, future in work:
+        result, error = _outcome(future)
+        if error is not None:
+            # One language's job failing no longer takes the others down with it: they were
+            # already translated (and paid for) side by side, so they are merged; this one
+            # keeps its keys stale-locked for the next run.
+            err(f"{lang}: {error}")
+            job_failed = True
+            broken.update(todo)
+            broken_by_lang.setdefault(lang, set()).update(todo)
+            continue
+        job, status, members = result
         translated = _find_json_member(members, lang)
+        if translated is not None and getattr(args, "digits", "native") == "latin":
+            translated = dg.in_values(translated)
         if translated is None:
             err(f"{lang}: no output returned")
             broken.update(todo)  # not merged — keep these keys stale-locked
@@ -1213,7 +1344,7 @@ def _translate_incremental(client, path, out_dir, langs, args):
              f"files are known to match.")
     if not any_work:
         ok("Everything already up to date — nothing to translate")
-    return 0
+    return 1 if job_failed else 0
 
 
 def _find_json_member(members, lang):
@@ -1263,11 +1394,13 @@ def write_atomic(path, data, *, binary=False):
 _MERGED_MEMBER_EXTS = (".xcstrings",)
 
 
-def _write_members(members, src_path, out_dir, source_lang):
+def _write_members(members, src_path, out_dir, source_lang, digits="native", lang_case="keep"):
     """Write each downloaded member (named `<lang><ext>`) to its namespace-mirrored
     target path (see _target_path) instead of a flat out_dir."""
     written = []
     for name, data in members.items():
+        if digits == "latin":
+            data = dg.in_file(data)
         if name.lower().endswith(_MERGED_MEMBER_EXTS):
             # An Xcode String Catalog holds every language at once, so the result belongs
             # where the source is — that is the file Xcode reads and the developer keeps
@@ -1283,7 +1416,7 @@ def _write_members(members, src_path, out_dir, source_lang):
         folder = os.path.basename(os.path.dirname(name.replace("\\", "/")))
         lang = (folder[len("values-"):] if folder.startswith("values-")
                 else os.path.splitext(os.path.basename(name))[0])
-        dest = _target_path(src_path, lang, out_dir, source_lang)
+        dest = _out_path(src_path, lang, out_dir, source_lang, lang_case)
         os.makedirs(os.path.dirname(dest) or out_dir or ".", exist_ok=True)
         write_atomic(dest, data, binary=True)
         written.append(dest)
@@ -1361,6 +1494,22 @@ def build_parser():
     t.add_argument("--translate-service-keys", action="store_true",
                    help="Also translate keys that start with '_' (e.g. \"_status\"). By default "
                         "they are copied through untouched in JSON, YAML and ARB.")
+    # Help text stays ASCII: `--help` printed to a legacy Windows console (cp1252) would raise
+    # on the native digits themselves.
+    t.add_argument("--digits", choices=dg.MODES, default=None,
+                   help="Digits in the result: 'native' (default) keeps what the language writes "
+                        "(Persian, Bengali, Hindi, Arabic... digits), 'latin' rewrites every one to 0-9. "
+                        "Placeholders are left as they are. Also \"digits\" in kaeris.json")
+    t.add_argument("--lang-case", dest="lang_case", choices=LANG_CASES, default=None,
+                   help="Case of the language code in new file and folder names: 'keep' "
+                        "(default, zh-Hant.json) or 'lower' (zh-hant.json). A file or folder "
+                        "that already exists in another case is always written under its own "
+                        "name. Also \"lang_case\" in kaeris.json")
+    t.add_argument("--jobs", "-j", type=int, default=None, metavar="N",
+                   help=f"How many jobs to keep running on the server at once (default "
+                        f"{DEFAULT_JOBS}): files side by side, and with --only-new the "
+                        "languages of a file. Results are still written and reported in order. "
+                        "--jobs 1 sends one at a time")
     t.add_argument("--quiet", "-q", action="store_true", help="Suppress progress output")
     t.add_argument("--tm", metavar="PATH",
                    help=f"Project translation memory file (default: {tmem.FILENAME} next to "
