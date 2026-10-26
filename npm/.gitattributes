@@ -1,4 +1,9 @@
-# the corpus is compared byte for byte with what the Python original read
+# Published files are LF everywhere (a CR after the shebang breaks `npx` on Linux).
+*.js text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.py text eol=lf
+# The corpus is compared byte for byte with what the Python original read.
 test/corpus/** -text
 test/baseline/** -text
 test/pairs.json -text
