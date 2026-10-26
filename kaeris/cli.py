@@ -7,9 +7,10 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import sys
+import time
 
 from . import __version__
-from .client import KaerisClient, KaerisError, DEFAULT_API
+from .client import KaerisClient, KaerisError, KaerisInterrupted, DEFAULT_API
 from .encoding import read_text, UnknownEncoding
 from . import incremental as inc
 from .incremental import TooDeep
@@ -153,11 +154,31 @@ def _fmt_receipt(rec):
 # Glossary terms the run's receipts reported, by whether the file used them. A run over
 # several files used to warn after each one — four warnings in a customer re-run
 # (26.10.2026), each naming terms that another file of the same run did use.
-_GLOSSARY_SEEN = {"found": set(), "absent": set()}
+# A receipt only knows what its job was SENT: an --only-new run sends the changed keys, and a job
+# that died sends no receipt at all — so after a cut-off run four terms that were in the source
+# were called absent (a customer run, 26.10.2026). "sources" holds the run's whole source files,
+# read here, and is the last word on absence.
+_GLOSSARY_SEEN = {"found": set(), "absent": set(), "sources": []}
+
+
+def _source_text(path):
+    """The text a glossary term can occur in: the values of a JSON/ARB file, else the file."""
+    try:
+        text = read_text(path)
+    except (OSError, UnknownEncoding):
+        return ""
+    if path.lower().endswith((".json", ".arb")):
+        try:
+            return "\n".join(str(v) for v in inc.flatten(json.loads(text)).values())
+        except (ValueError, TooDeep, AttributeError):
+            pass
+    return text
 
 
 def _say_absent_glossary():
-    absent = sorted(_GLOSSARY_SEEN["absent"] - _GLOSSARY_SEEN["found"])
+    sources = [t.lower() for t in _GLOSSARY_SEEN["sources"]]
+    absent = sorted(t for t in _GLOSSARY_SEEN["absent"] - _GLOSSARY_SEEN["found"]
+                    if not any(t.lower() in src for src in sources))
     if absent:
         warn(f"{len(absent)} glossary term(s) never appear in your source, so nothing kept "
              f"them: {', '.join(absent[:5])}")
@@ -727,15 +748,31 @@ def _jobs(args):
         return DEFAULT_JOBS
 
 
+# A job that died with a server restart is sent again this many times, after a growing pause:
+# the server returned its quota when it failed it, so this is not a second charge.
+RESTART_RETRIES = 2
+RESTART_PAUSE = 20
+
+
 def _run_job(client, fname, content, langs, args, reuse=None, label=""):
     """Submit one job, wait for it, fetch the archive: the part that only waits on the server,
     so it can run beside other jobs. Returns (job, status, members)."""
-    job = client.submit(fname, content, langs, _glossary(args), reuse=reuse,
-                        verify=args.verify, back_lang=args.back_lang,
-                        tone=_tone(args), icu=args.icu,
-                        app_context=_app_context(args),
-                        **_service_keys_opt(args))
-    status = client.poll(job, on_progress=None if args.quiet else _progress_printer(label))
+    for attempt in range(RESTART_RETRIES + 1):
+        job = client.submit(fname, content, langs, _glossary(args), reuse=reuse,
+                            verify=args.verify, back_lang=args.back_lang,
+                            tone=_tone(args), icu=args.icu,
+                            app_context=_app_context(args),
+                            **_service_keys_opt(args))
+        try:
+            status = client.poll(job, on_progress=None if args.quiet else _progress_printer(label))
+            break
+        except KaerisInterrupted:
+            if attempt == RESTART_RETRIES:
+                raise
+            pause = RESTART_PAUSE * (attempt + 1)
+            warn(f"{label or fname}: the server restarted mid-run (nothing was charged) — "
+                 f"sending it again in {pause}s ({attempt + 1}/{RESTART_RETRIES})")
+            time.sleep(pause)
     return job, status, client.download(job)
 
 
@@ -821,6 +858,7 @@ def cmd_translate(args):
     args.verify_back = {}
     _GLOSSARY_SEEN["found"].clear()
     _GLOSSARY_SEEN["absent"].clear()
+    _GLOSSARY_SEEN["sources"] = [_source_text(p) for p in files] if _glossary(args) else []
     # Whole-file jobs go to the server side by side (up to --jobs at once); what they wrote,
     # what QA found and what they cost is still reported file by file, in order. --only-new
     # files run in their turn — they already send one job per language, side by side.

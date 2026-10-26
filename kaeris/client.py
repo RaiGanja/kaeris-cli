@@ -3,6 +3,7 @@
 import io
 import json
 import os
+import random
 import time
 import uuid
 import zipfile
@@ -29,6 +30,16 @@ class KaerisTimeout(KaerisError):
         super().__init__(
             f"Still running after {waited:.0f}s (job {job_id}). The translation continues on "
             "the server and is not charged twice — collect it with this job id.")
+
+
+class KaerisInterrupted(KaerisError):
+    """The job died with the server process that ran it (a restart), not on its own input. The
+    server has already returned the quota it reserved, so sending the same job again is not a
+    second charge."""
+
+
+# What a server older than the `retryable` field says about exactly that case.
+_RESTART_PHRASE = "the server process restarted"
 
 
 def checked_key(key, label):
@@ -167,6 +178,13 @@ def _urlopen(req, timeout):
 SUBMIT_RETRIES = 3
 RECEIPT_RETRIES = 10
 MAX_RETRY_WAIT = 60
+# A read (status, receipt, preview, download) waits out a 429 this many times. The limit that
+# actually fires on reads is the edge's per-address one: it clears within about a minute, and
+# two runs side by side from one address trip it within seconds (a customer run, 26.10.2026).
+READ_RETRIES = 5
+# Once a 429 was seen, polling slows down by this factor, up to MAX_POLL_SLOWDOWN.
+POLL_SLOWDOWN = 2.0
+MAX_POLL_SLOWDOWN = 8.0
 
 
 def _retry_after(e, attempt):
@@ -179,6 +197,12 @@ def _retry_after(e, attempt):
     return max(1, min(MAX_RETRY_WAIT, int(wait)))
 
 
+def _still_rate_limited(detail, waited):
+    return (f"{detail} — still rate-limited after {waited:.0f}s of waiting. Too many requests "
+            "from this address: is another kaeris run going at the same time? Run them one "
+            "after another, or lower --jobs.")
+
+
 class KaerisClient:
     def __init__(self, api_url=DEFAULT_API, api_key=None, openrouter_key=None, timeout=180):
         self.api_url = checked_api_url(api_url)
@@ -189,6 +213,12 @@ class KaerisClient:
         # one client keeps several jobs in flight (--jobs), for every job it started.
         self.last_edit_token = ""
         self._edit_tokens = {}
+        self._poll_slowdown = 1.0
+
+    def poll_interval(self, base):
+        """The pause between status polls: `base`, stretched once a 429 has been seen, so the
+        jobs this client has in flight stop feeding the limit they just hit."""
+        return base * self._poll_slowdown
 
     # ── low-level ────────────────────────────────────────────────────────────
     def _headers(self, extra=None):
@@ -202,17 +232,31 @@ class KaerisClient:
         return h
 
     def _get(self, path, extra_headers=None):
-        req = urllib.request.Request(self.api_url + path,
-                                     headers=self._headers(extra_headers))
-        try:
-            with _urlopen(req, timeout=self.timeout) as r:
-                return r.read()
-        except urllib.error.HTTPError as e:
-            error = KaerisError(self._err_message(e))
-            error.code = e.code
-            raise error
-        except urllib.error.URLError as e:
-            raise KaerisError(f"Cannot reach {self.api_url}: {e.reason}")
+        waited = 0
+        for attempt in range(READ_RETRIES + 1):
+            req = urllib.request.Request(self.api_url + path,
+                                         headers=self._headers(extra_headers))
+            try:
+                with _urlopen(req, timeout=self.timeout) as r:
+                    return r.read()
+            except urllib.error.HTTPError as e:
+                if e.code == 429:
+                    self._poll_slowdown = min(MAX_POLL_SLOWDOWN,
+                                              self._poll_slowdown * POLL_SLOWDOWN)
+                    if attempt < READ_RETRIES:
+                        # A little jitter: the jobs of one run were all stopped by the same
+                        # limit, and waking them in the same second would trip it again.
+                        wait = _retry_after(e, attempt) + random.random() * 2
+                        time.sleep(wait)
+                        waited += wait
+                        continue
+                    error = KaerisError(_still_rate_limited(self._err_message(e), waited))
+                else:
+                    error = KaerisError(self._err_message(e))
+                error.code = e.code
+                raise error
+            except urllib.error.URLError as e:
+                raise KaerisError(f"Cannot reach {self.api_url}: {e.reason}")
 
     @staticmethod
     def _err_message(e):
@@ -322,6 +366,7 @@ class KaerisClient:
                                       tone=tone, icu=icu, reuse=reuse,
                                       app_context=app_context,
                                       translate_service_keys=translate_service_keys)
+        waited = 0
         for attempt in range(SUBMIT_RETRIES + 1):
             req = urllib.request.Request(
                 self.api_url + "/api/translate", data=body, method="POST",
@@ -336,8 +381,12 @@ class KaerisClient:
                 # job was never started, so nothing is charged twice: wait as long as the
                 # server asks, within reason, and send it again.
                 if e.code == 429 and attempt < SUBMIT_RETRIES:
-                    time.sleep(_retry_after(e, attempt))
+                    wait = _retry_after(e, attempt)
+                    time.sleep(wait)
+                    waited += wait
                     continue
+                if e.code == 429:
+                    raise KaerisError(_still_rate_limited(self._err_message(e), waited))
                 raise KaerisError(self._err_message(e))
             except urllib.error.URLError as e:
                 raise KaerisError(f"Cannot reach {self.api_url}: {e.reason}")
@@ -393,8 +442,11 @@ class KaerisClient:
             if state == "done":
                 return status
             if state == "error":
-                raise KaerisError(status.get("error") or "Translation failed")
-            time.sleep(interval)
+                message = status.get("error") or "Translation failed"
+                if status.get("retryable") or _RESTART_PHRASE in message:
+                    raise KaerisInterrupted(message)
+                raise KaerisError(message)
+            time.sleep(self.poll_interval(interval))
         # Named exception, carrying the job id: a caller that gives up must still be able to
         # come back for work that has already been paid for.
         raise KaerisTimeout(job_id, max_wait)
