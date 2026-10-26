@@ -330,6 +330,11 @@ def _target_path(src_path, lang, out_dir, source_lang):
     stem, ext = os.path.splitext(os.path.basename(src_path))
     src_dir = os.path.dirname(src_path)
 
+    parent = os.path.basename(src_dir)
+    if ext.lower() == ".xml" and (parent == "values" or parent.startswith("values-")):
+        res_dir = out_dir or os.path.dirname(src_dir)
+        return os.path.join(res_dir, f"values-{lang}", os.path.basename(src_path))
+
     if stem == source_lang:
         d = out_dir if out_dir else src_dir
         return os.path.join(d, f"{lang}{ext}")
@@ -1155,7 +1160,9 @@ def _write_members(members, src_path, out_dir, source_lang):
             write_atomic(dest, data, binary=True)
             written.append(dest)
             continue
-        lang = os.path.splitext(os.path.basename(name))[0]
+        folder = os.path.basename(os.path.dirname(name.replace("\\", "/")))
+        lang = (folder[len("values-"):] if folder.startswith("values-")
+                else os.path.splitext(os.path.basename(name))[0])
         dest = _target_path(src_path, lang, out_dir, source_lang)
         os.makedirs(os.path.dirname(dest) or out_dir or ".", exist_ok=True)
         write_atomic(dest, data, binary=True)
