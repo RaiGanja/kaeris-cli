@@ -349,3 +349,48 @@ def test_yaml_reader_reads_what_the_server_reads_in_a_real_locale_file():
     mine = miniyaml.load(text)
     assert {k: v for k, v in fm.read_yaml(text).items() if isinstance(v, str)} == theirs
     assert mine["en"]["date"]["day_names"] == ["Sunday", "Monday"]
+
+
+# ── the server's own output goes through the check ────────────────────────────
+
+ROUND_TRIP = {
+    "yaml": ("en.yml", YAML.replace("  flag: true\n  number: 3\n  nothing:\n", "")),
+    "strings": ("en.strings", STRINGS),
+    "po": ("en.po", PO),
+    "android": ("res/values/strings.xml", ANDROID.replace('    <string name="empty"></string>\n', "")),
+    "xliff": ("en.xliff", XLIFF),
+    "properties": ("en.properties", PROPERTIES.replace("empty=\n", "")),
+    "resx": ("en.resx", RESX),
+    "ftl": ("en.ftl", FTL),
+    "markdown": ("en.md", MD),
+    "csv": ("translations.csv", CSV),
+}
+
+
+@pytest.mark.parametrize("name", sorted(ROUND_TRIP))
+def test_what_the_server_writes_passes_the_check(name, tmp_path):
+    """A translation the server wrote (here: every string prefixed, nothing else changed) is a
+    clean result for `kaeris check` — same file names, same structure, nothing reported missing."""
+    import io
+    import contextlib
+    import zipfile
+    from kaeris import cli as K
+    t, _ = BK
+    rel, text = ROUND_TRIP[name]
+    flat, fmt, passthrough = t.parse_source(text.encode("utf-8"), os.path.basename(rel))
+    translated = {k: "[de] " + v for k, v in flat.items()}
+    zip_path = str(tmp_path / "out.zip")
+    t.write_translation_zip(zip_path, {"de": translated}, fmt, passthrough)
+    src = tmp_path / rel
+    src.parent.mkdir(parents=True, exist_ok=True)
+    src.write_text(text, encoding="utf-8")
+    with zipfile.ZipFile(zip_path) as z:
+        for member in z.namelist():
+            dest = src.parent.parent / member if name == "android" else tmp_path / member
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(z.read(member))
+    out = io.StringIO()
+    with contextlib.redirect_stderr(out), contextlib.redirect_stdout(out):
+        code = K.main(["check", "--source", str(src), "--langs", "de", "--json"])
+    report = out.getvalue()
+    assert code == 0, report

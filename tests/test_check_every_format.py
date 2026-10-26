@@ -382,3 +382,47 @@ def test_a_format_that_is_not_supported_says_which_are(tmp_path):
     code, out = run(p)
     assert code == 2, out
     assert "stringsdict" in out
+
+
+# ── where the target is looked for, and how the file is read ──────────────────
+
+def test_xcode_language_folders_are_found(tmp_path):
+    put(tmp_path, {"en.lproj/Localizable.strings": '"hi" = "Hello, %@";\n',
+                   "de.lproj/Localizable.strings": '"hi" = "Hallo, %@";\n'})
+    code, out = run(tmp_path / "en.lproj/Localizable.strings")
+    assert code == 0, out
+
+
+def test_a_file_in_another_layout_is_found_with_a_pattern(tmp_path):
+    put(tmp_path, {"po/en.po": FORMATS["po"][1]["en.po"],
+                   "po/messages.de.po": FORMATS["po"][1]["de.po"]})
+    code, out = run(tmp_path / "po/en.po", "de", "--pattern", "messages.{lang}.po")
+    assert code == 0, out
+
+
+def test_utf16_strings_files_are_read(tmp_path):
+    (tmp_path / "en.strings").write_bytes('"hi" = "Hello, %@";\r\n'.encode("utf-16"))
+    (tmp_path / "de.strings").write_bytes('"hi" = "Hallo";\r\n'.encode("utf-16"))
+    code, out = run(tmp_path / "en.strings")
+    assert code == 1 and "%@" in out, out
+
+
+def test_a_bom_and_windows_line_endings_do_not_matter(tmp_path):
+    (tmp_path / "en.properties").write_bytes(b"\xef\xbb\xbfhi=Hello, {0}\r\nbye=Bye\r\n")
+    (tmp_path / "de.properties").write_bytes(b"\xef\xbb\xbfhi=Hallo, {0}\r\nbye=Tsch\\u00fcss\r\n")
+    code, out = run(tmp_path / "en.properties")
+    assert code == 0, out
+
+
+def test_a_second_language_missing_its_file_is_named(tmp_path):
+    put(tmp_path, FORMATS["yaml"][1])
+    code, out = run(tmp_path / "en.yml", "de,fr")
+    assert code == 1
+    assert "fr" in out and "not found" in out, out
+
+
+def test_a_csv_without_the_language_column_says_so(tmp_path):
+    put(tmp_path, FORMATS["csv"][1])
+    code, out = run(tmp_path / "translations.csv", "de,fr")
+    assert code == 1
+    assert "fr" in out and "no translations" in out, out
