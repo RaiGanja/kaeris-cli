@@ -1726,14 +1726,19 @@ def build_parser():
                     "bug that silently breaks the app at runtime. Exits non-zero so it can gate "
                     "a CI merge. Reads ./kaeris.json for source/langs/out when flags are omitted.",
     )
-    c.add_argument("--source", help="Source (base-language) JSON or ARB file; optional if 'source' is set in kaeris.json")
+    c.add_argument("--source", help="Source (base-language) file in any format `translate` takes "
+                                    "(JSON, ARB, YAML, .strings, .xcstrings, .po, Android XML, CSV, "
+                                    "XLIFF, .properties, .resx, Fluent, Markdown); optional if "
+                                    "'source' is set in kaeris.json")
     c.add_argument("--langs", "-l", help="Comma-separated target languages, e.g. es,fr,de; "
                                         "optional if 'langs' is set in kaeris.json")
     c.add_argument("--out", "-o", help="Directory containing target locale files "
-                                       "(default: alongside the source, or 'out' in kaeris.json)")
+                                       "(default: where `translate` writes them, next to the source, "
+                                       "or 'out' in kaeris.json)")
     c.add_argument("--pattern", default=None,
                    help="Target filename pattern, '{lang}' is replaced with the language code "
-                        "(default: '{lang}.json')")
+                        "(default: the layout `translate` writes, e.g. de.json, app_de.arb, "
+                        "values-de/strings.xml)")
     c.add_argument("--glossary", "--keep", dest="glossary", default=None,
                    help="Comma-separated terms the translation must keep verbatim, e.g. "
                         "--glossary 'KAERIS,GitHub' (default: 'keep' in kaeris.json). "
