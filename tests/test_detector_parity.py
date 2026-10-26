@@ -59,6 +59,20 @@ CORPUS = [  # (original, translated, lang)
      "After registration you will find it in the developer dashboard.", "fr"),
 ]
 
+# A customer re-run (26.10.2026): an emphasis added, a line break lost, number words that
+# compose ("Ninety", "Two hundred"), a label that grew a little.
+CORPUS += [
+    ("Notes from\nthe *harbor*.", "*港*からの\n*メモ*。", "ja"),
+    ("Everything you need\nto review *Northwind*.", "هر آنچه برای بررسی *Northwind* نیاز دارید.", "fa"),
+    ("Ninety seconds\nof *setup*.", "90秒の\n*セットアップ*。", "ja"),
+    ("Two hundred testers from the forum try the first release.",
+     "フォーラムから選ばれた200人のテスターが最初のリリースを試す。", "ja"),
+    ("Ninety seconds", "96秒", "ja"),
+    ("Build a project\n*with* us.", "আমাদের\n\nসাথে* একটি প্রকল্প তৈরি করুন।", "bn"),
+    ("Page not found", "Pahina ay hindi natagpuan", "tl"),
+    ("Add to favorites", "Afegeix a la llista de preferits", "ca"),
+]
+
 GLOSSARY = ["KAERIS"]
 
 @unittest.skipIf(BK is None, "backend/translator.py not importable — parity skipped")
@@ -85,6 +99,15 @@ class TestDetectorParity(unittest.TestCase):
                              BK._glossary_case_drift(src, tr, GLOSSARY), (src, tr))
             self.assertEqual(d._answered_instead_of_translating(src, tr),
                              BK._answered_instead_of_translating(src, tr), (src, tr))
+            self.assertEqual(d._numeric_faults(src, tr, lang), BK._numeric_faults(src, tr, lang),
+                             (src, tr, lang))
+            for soft in (False, True):
+                self.assertEqual(d._line_break_faults(src, tr, soft),
+                                 BK._line_break_faults(src, tr, soft), (src, tr, soft))
+            for prose in (False, True):
+                self.assertEqual(d._compute_overflow({"k": src}, {"k": tr}, lang, prose=prose),
+                                 BK._compute_overflow({"k": src}, {"k": tr}, lang, prose=prose),
+                                 (src, tr, lang, prose))
 
 if __name__ == "__main__":
     unittest.main()

@@ -302,6 +302,40 @@ _NUMBER_WORDS = {
 _NUMBER_WORD_RE = re.compile(r"\b(" + "|".join(_NUMBER_WORDS) + r")\b", re.I)
 
 
+# Tens and scales compose with the words above: "ninety-nine", "two hundred", "three thousand
+# five hundred". A customer re-run (26.10.2026): "Ninety seconds" → "90秒", "Two hundred
+# testers" → "200人", "forty minutes" → "40分間" were all reported as invented numbers,
+# because only 0–12 were known.
+_NUMBER_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60,
+                "seventy": 70, "eighty": 80, "ninety": 90}
+_NUMBER_TEENS = {"thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16,
+                 "seventeen": 17, "eighteen": 18, "nineteen": 19}
+_NUMBER_SCALES = {"hundred": 100, "thousand": 1000, "million": 1000000}
+_NUMBER_PART_WORDS = {**{w: v for w, v in _NUMBER_WORDS.items() if v <= 12 and w not in (
+    "first", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth",
+    "once", "twice", "thrice")}, **_NUMBER_TENS, **_NUMBER_TEENS}
+_NUMBER_RUN_WORD = "(?:" + "|".join(list(_NUMBER_PART_WORDS) + list(_NUMBER_SCALES)) + ")"
+_NUMBER_RUN_RE = re.compile(
+    r"\b" + _NUMBER_RUN_WORD + r"(?:(?:\s+and\s+|[\s-]+)" + _NUMBER_RUN_WORD + r")*\b", re.I)
+
+
+def _number_run_value(run: str) -> int:
+    """"two hundred" → 200, "ninety-nine" → 99, "three thousand five hundred" → 3500."""
+    total, current = 0, 0
+    for w in re.findall(r"[a-z]+", run.lower()):
+        if w == "and":
+            continue
+        if w in _NUMBER_SCALES:
+            if _NUMBER_SCALES[w] == 100:
+                current = (current or 1) * 100
+            else:
+                total += (current or 1) * _NUMBER_SCALES[w]
+                current = 0
+        else:
+            current += _NUMBER_PART_WORDS[w]
+    return total + current
+
+
 # An ICU arm label — `one {`, `two {`, `=0 {` — is syntax, not prose. Matched only where a
 # label can legally stand: after the construct's comma or after a previous arm's closing brace.
 _ICU_ARM_LABEL_RE = re.compile(r"(?<=[,}])(\s*)(=\d+|\w+)(\s*)(?=\{)")
@@ -321,8 +355,13 @@ def _spelled_numbers(text: str) -> set:
     user who has 21 — a wrong number, silently allowed. Prose is untouched, so a source that
     really says "at least one language" still forgives.
     """
-    return {_num_key(str(_NUMBER_WORDS[m.group(1).lower()]))
-            for m in _NUMBER_WORD_RE.finditer(_ICU_ARM_LABEL_RE.sub(r"\1\3", text or ""))}
+    prose = _ICU_ARM_LABEL_RE.sub(r"\1\3", text or "")
+    out = {_num_key(str(_NUMBER_WORDS[m.group(1).lower()]))
+           for m in _NUMBER_WORD_RE.finditer(prose)
+           if m.group(1).lower() not in _NUMBER_PART_WORDS}
+    # A run of number words is ONE number: "two hundred" forgives 200, not 2.
+    out |= {_num_key(str(_number_run_value(m.group(0)))) for m in _NUMBER_RUN_RE.finditer(prose)}
+    return out
 
 # Languages whose counter system spells singularity as a numeral: English "an hour" is
 # Japanese "1時間". The article carries the meaning in one and a digit carries it in the other,
@@ -439,6 +478,10 @@ def _line_break_faults(original: str, translated: str, soft_breaks: bool = False
     if tr_em < src_em:
         out.append(f"emphasis *…* broken: {src_em} in the source, {tr_em} intact in the "
                    "translation")
+    elif tr_em > src_em:
+        # An emphasis the author never put there: «*港*からの\n*メモ*» for one *harbor*
+        # renders a second bold word the page did not ask for (customer re-run, ja, zh-Hant).
+        out.append(f"emphasis *…* added: {src_em} in the source, {tr_em} in the translation")
     return out
 
 def _brace_spans(text: str) -> list[tuple[int, int]]:
@@ -614,11 +657,20 @@ _SHORT_LABEL_GROWTH = 12    # characters it may gain before a tight button is at
 
 
 def _compute_overflow(source_flat: dict[str, str], translated_flat: dict[str, str],
-                      lang: str = "") -> list[dict]:
+                      lang: str = "", prose: bool = False) -> list[dict]:
     """Flag translations likely to overflow UI (short labels that grew a lot). Length is a strong,
     free proxy for layout breakage. Language-aware: the trigger is scaled to the target language's
     TYPICAL expansion, so an expected German/Finnish stretch doesn't cry wolf while a genuine
-    outlier (or a normally-compact language that ran long) still trips it."""
+    outlier (or a normally-compact language that ran long) still trips it.
+
+    Every finding also needs the text to have grown by more than _SHORT_LABEL_GROWTH
+    characters: a layout breaks on characters, not on a percentage. A customer re-run
+    (26.10.2026) got 75 warnings on 12 languages, and almost half were 13–20 character labels
+    that gained 7–11 characters — "Page not found" → «Pahina ay hindi natagpuan» read +79%.
+
+    `prose`: Markdown, where headings and paragraphs reflow with the page. Only text that grew
+    two and a half times is worth a look there — «Still testing» in Hindi is twice as long and
+    fine — and a short heading is not a button."""
     base = (lang or "").replace("_", "-").split("-")[0].lower()
     expected = _LANG_EXPANSION.get(base, 1.2)
     # Overflow is a LAYOUT question, so measure what RENDERS, not what's authored: an ICU
@@ -639,6 +691,13 @@ def _compute_overflow(source_flat: dict[str, str], translated_flat: dict[str, st
         if slen == 0:
             continue
         ratio = tlen / slen
+        if tlen - slen <= _SHORT_LABEL_GROWTH:
+            continue
+        if prose:
+            if ratio >= max(2.5, threshold):
+                out.append({"key": k, "src": src, "tr": tr,
+                            "pct": round((ratio - 1) * 100), "typical": typical_pct})
+            continue
         if slen <= _SHORT_LABEL_CHARS:
             # X4 (26.10.2026): for one or two words a percentage says nothing — "Play" →
             # «Воспроизвести» read +225% and is an ordinary word. A button breaks on extra

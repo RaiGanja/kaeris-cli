@@ -148,6 +148,19 @@ def _fmt_receipt(rec):
     return lines, failed
 
 
+# Glossary terms the run's receipts reported, by whether the file used them. A run over
+# several files used to warn after each one — four warnings in a customer re-run
+# (26.10.2026), each naming terms that another file of the same run did use.
+_GLOSSARY_SEEN = {"found": set(), "absent": set()}
+
+
+def _say_absent_glossary():
+    absent = sorted(_GLOSSARY_SEEN["absent"] - _GLOSSARY_SEEN["found"])
+    if absent:
+        warn(f"{len(absent)} glossary term(s) never appear in your source, so nothing kept "
+             f"them: {', '.join(absent[:5])}")
+
+
 def _show_receipt(client, job):
     """Print what the run actually did. Best-effort, like the other after-the-fact lines: an
     older server has no /api/receipt and an unreachable one has nothing at all."""
@@ -158,12 +171,10 @@ def _show_receipt(client, job):
     lines, failed = _fmt_receipt(rec)
     info(lines[0])
     print(lines[1], file=sys.stderr)
-    # A glossary term that was never in the file was never going to be honoured, and until
-    # this line nothing said so — the run simply looked clean.
-    absent = [g["term"] for g in (rec.get("glossary") or []) if not g.get("found_in_source")]
-    if absent:
-        warn(f"{len(absent)} glossary term(s) never appear in your source, so nothing kept "
-             f"them: {', '.join(absent[:5])}")
+    # A glossary term that was never in the file was never going to be honoured. Collected
+    # here and said once at the end of the run, about the whole run (_say_absent_glossary).
+    for g in rec.get("glossary") or []:
+        (_GLOSSARY_SEEN["found"] if g.get("found_in_source") else _GLOSSARY_SEEN["absent"]).add(g["term"])
     if failed:
         warn(f"not delivered: {', '.join(failed)}")
     return rec
@@ -728,6 +739,8 @@ def cmd_translate(args):
     multi = len(files) > 1
     exit_code = 0
     args.verify_back = {}
+    _GLOSSARY_SEEN["found"].clear()
+    _GLOSSARY_SEEN["absent"].clear()
     for path in files:
         if multi:
             info(f"── {os.path.relpath(path)} ──")
@@ -738,6 +751,7 @@ def cmd_translate(args):
             code = 1
         exit_code = max(exit_code, code)
     _write_verify(args, files)
+    _say_absent_glossary()
     # What the run cost of the month, once per invocation rather than once per file — and here
     # rather than inside _translate_one so the incremental (--only-new) path, which returns
     # earlier, reports it too.
