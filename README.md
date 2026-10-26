@@ -341,6 +341,7 @@ Anything not passed falls back to `kaeris.json`, then to the built-in default.
 | `--verify` | back-translation and meaning check for your review; prints `⚠ meaning:` lines and writes `verify.json` |
 | `--back-lang en` | language to back-translate into with `--verify` |
 | `--translate-service-keys` | also translate keys that start with `_` (`"_status"`); by default they are copied through untouched in JSON, YAML and ARB |
+| `--jobs N` | jobs kept running at once (default 4): several files side by side, and with `--only-new` the languages of one file; results are still written and reported in order. `--jobs 1` sends one at a time |
 | `--quiet` | no progress output |
 | `--receipt PATH` | write a JSON record of the run — counts and settings only, no strings |
 | `--tm PATH` | project translation memory file (default `kaeris-tm.json` next to the source) |

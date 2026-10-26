@@ -162,14 +162,32 @@ def _urlopen(req, timeout):
     return _opener.open(req, timeout=timeout)
 
 
+# A 429 on submit is retried this many times, never waiting longer than MAX_RETRY_WAIT seconds
+# at a time: the per-minute limits reset within a minute.
+SUBMIT_RETRIES = 3
+MAX_RETRY_WAIT = 60
+
+
+def _retry_after(e, attempt):
+    """Seconds to wait after a 429: the server's Retry-After when it gives a number, else a
+    growing guess."""
+    try:
+        wait = float(e.headers.get("Retry-After"))
+    except (TypeError, ValueError, AttributeError):
+        wait = 10.0 * (attempt + 1)
+    return max(1, min(MAX_RETRY_WAIT, int(wait)))
+
+
 class KaerisClient:
     def __init__(self, api_url=DEFAULT_API, api_key=None, openrouter_key=None, timeout=180):
         self.api_url = checked_api_url(api_url)
         self.api_key = checked_key(api_key, "KAERIS API key")
         self.openrouter_key = checked_key(openrouter_key, "OpenRouter key")
         self.timeout = timeout
-        # Set by submit(): ownership proof for the job this client just started.
+        # Set by submit(): ownership proof for the job this client just started — and, since
+        # one client keeps several jobs in flight (--jobs), for every job it started.
         self.last_edit_token = ""
+        self._edit_tokens = {}
 
     # ── low-level ────────────────────────────────────────────────────────────
     def _headers(self, extra=None):
@@ -301,17 +319,25 @@ class KaerisClient:
                                       tone=tone, icu=icu, reuse=reuse,
                                       app_context=app_context,
                                       translate_service_keys=translate_service_keys)
-        req = urllib.request.Request(
-            self.api_url + "/api/translate", data=body, method="POST",
-            headers=self._headers({"Content-Type": ctype}),
-        )
-        try:
-            with _urlopen(req, timeout=self.timeout) as r:
-                data = json.loads(r.read().decode())
-        except urllib.error.HTTPError as e:
-            raise KaerisError(self._err_message(e))
-        except urllib.error.URLError as e:
-            raise KaerisError(f"Cannot reach {self.api_url}: {e.reason}")
+        for attempt in range(SUBMIT_RETRIES + 1):
+            req = urllib.request.Request(
+                self.api_url + "/api/translate", data=body, method="POST",
+                headers=self._headers({"Content-Type": ctype}),
+            )
+            try:
+                with _urlopen(req, timeout=self.timeout) as r:
+                    data = json.loads(r.read().decode())
+                break
+            except urllib.error.HTTPError as e:
+                # Too many submits this minute (several jobs in flight on a small plan). The
+                # job was never started, so nothing is charged twice: wait as long as the
+                # server asks, within reason, and send it again.
+                if e.code == 429 and attempt < SUBMIT_RETRIES:
+                    time.sleep(_retry_after(e, attempt))
+                    continue
+                raise KaerisError(self._err_message(e))
+            except urllib.error.URLError as e:
+                raise KaerisError(f"Cannot reach {self.api_url}: {e.reason}")
         job_id = data.get("job_id")
         if not job_id:
             raise KaerisError(f"No job_id in response: {data}")
@@ -320,6 +346,7 @@ class KaerisClient:
         # spend, app context, glossary). Dropping it on the floor — which is what this client
         # used to do — turned the person who paid for the run into a stranger to it.
         self.last_edit_token = data.get("edit_token") or ""
+        self._edit_tokens[job_id] = self.last_edit_token
         return job_id
 
     def parse(self, filename, content):
@@ -378,7 +405,11 @@ class KaerisClient:
         job, so they come back only when we present its edit_token (kept from submit()).
         Without it the server still answers — with the run's public half — because the same
         endpoint backs the read-only share link."""
-        token = edit_token if edit_token is not None else getattr(self, "last_edit_token", "")
+        if edit_token is not None:
+            token = edit_token
+        else:
+            token = (getattr(self, "_edit_tokens", {}).get(job_id)
+                     or getattr(self, "last_edit_token", ""))
         headers = {"X-Job-Token": token} if token else None
         return json.loads(self._get(f"/api/receipt/{job_id}", headers).decode())
 

@@ -92,3 +92,51 @@ class TestReceiptOwnership(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _server_of_many(seen):
+    """Every submit is a new job with its own token, like the real API."""
+    count = [0]
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def _json(self, payload):
+            body = json.dumps(payload).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            count[0] += 1
+            self._json({"job_id": f"job{count[0]}", "edit_token": f"token{count[0]}"})
+
+        def do_GET(self):
+            seen.append((self.path.rsplit("/", 1)[1], self.headers.get("X-Job-Token")))
+            self._json({"status": "done"})
+
+    srv = socketserver.TCPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, srv.server_address[1]
+
+
+class TestSeveralJobsInFlight(unittest.TestCase):
+    def test_each_receipt_carries_its_own_jobs_token(self):
+        """`kaeris translate` keeps several jobs in flight (--jobs). One shared "last token"
+        would hand the first job's receipt the second job's token — and the owner would be a
+        stranger to the run they paid for."""
+        seen = []
+        srv, port = _server_of_many(seen)
+        try:
+            c = KaerisClient(api_url=f"http://127.0.0.1:{port}")
+            first = c.submit("en.json", b'{"a":"b"}', ["de"])
+            second = c.submit("a.md", b"# A", ["de"])
+            c.receipt(first)
+            c.receipt(second)
+        finally:
+            srv.shutdown()
+        self.assertEqual(seen, [("job1", "token1"), ("job2", "token2")])
