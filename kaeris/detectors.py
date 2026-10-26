@@ -374,6 +374,28 @@ def _lost_tags(original: str, translated: str) -> list[str]:
             lost.extend([tg] * n)
     return sorted(lost)
 
+
+# Emphasis that opens and closes on text. `*\n拒む*` has its delimiter touching the break, so a
+# Markdown renderer prints two literal asterisks (R03).
+_EMPHASIS_RE = re.compile(r"(?<![*\\])(\*{1,2})(?=[^\s*])(.+?)(?<=[^\s*\\])\1(?!\*)", re.S)
+
+
+def _line_break_faults(original: str, translated: str, soft_breaks: bool = False) -> list[str]:
+    """A line break lost, added or moved to an edge, and `*emphasis*` that no longer wraps text.
+    `soft_breaks`: Markdown paragraphs, where a re-wrapped line is not a change."""
+    out = []
+    n_src, n_tr = original.count("\n"), translated.count("\n")
+    if n_src != n_tr and not soft_breaks:
+        out.append(f"line breaks changed: {n_src} in the source, {n_tr} in the translation")
+    elif n_src and (original.startswith("\n") != translated.startswith("\n")
+                    or original.endswith("\n") != translated.endswith("\n")):
+        out.append("a line break moved to the start or end of the translation")
+    src_em, tr_em = len(_EMPHASIS_RE.findall(original)), len(_EMPHASIS_RE.findall(translated))
+    if tr_em < src_em:
+        out.append(f"emphasis *…* broken: {src_em} in the source, {tr_em} intact in the "
+                   "translation")
+    return out
+
 def _brace_spans(text: str) -> list[tuple[int, int]]:
     """Balanced top-level {...} spans. Covers both simple named placeholders ({name})
     and nested ICU MessageFormat ({count, plural, one {# item} other {# items}}) as ONE
@@ -926,6 +948,8 @@ def string_faults(src, tgt, lang, glossary=None):
         out.append({"severity": ERROR, "msg": msg})
     for tag in _lost_tags(src, tgt):
         out.append({"severity": ERROR, "msg": f"lost inline tag {tag}"})
+    for msg in _line_break_faults(src, tgt):
+        out.append({"severity": WARN, "msg": msg})
     if glossary:
         for term in _lost_glossary(src, tgt, glossary):
             out.append({"severity": ERROR, "msg": f"glossary term dropped: {term}"})
