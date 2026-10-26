@@ -57,7 +57,7 @@ export function parse(doc) {
   }
 
   function value(depth) {
-    if (depth > 900) throw new RangeError("nested too deeply");
+    if (depth > 900) throw new ValueError("nested too deeply: the JSON is deeper than this reader follows");
     const c = doc[i];
     if (c === '"') {
       i++;

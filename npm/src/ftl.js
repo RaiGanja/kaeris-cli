@@ -1,6 +1,6 @@
 // Mozilla Fluent (.ftl) read without Mozilla's parser: the part of Fluent that translation files
 // use, producing the same keys as the Python reader. See kaeris/ftl.py for the key scheme.
-import { rx, strip, lstrip, rstrip, isSpace } from "./py.js";
+import { reprStr, rx, strip, lstrip, rstrip, isSpace } from "./py.js";
 
 const ORDER = ["zero", "one", "two", "few", "many", "other"];
 const COUNTING = new Set(["zero", "one", "two", "few", "many"]);
@@ -257,22 +257,6 @@ function fold(flat, prefixes) {
   return out;
 }
 
-const repr = (s) => {
-  // Python's repr() of a short string, as used in the "not a Fluent message" note
-  const q = s.includes("'") && !s.includes('"') ? '"' : "'";
-  let out = q;
-  for (const ch of s) {
-    if (ch === "\\") out += "\\\\";
-    else if (ch === q) out += "\\" + q;
-    else if (ch === "\n") out += "\\n";
-    else if (ch === "\r") out += "\\r";
-    else if (ch === "\t") out += "\\t";
-    else if (/[\x00-\x1f\x7f]/.test(ch)) out += "\\x" + ch.charCodeAt(0).toString(16).padStart(2, "0");
-    else out += ch;
-  }
-  return out + q;
-};
-
 // ([key -> text], [problems])
 export function parse(text) {
   let flat = new Map();
@@ -286,7 +270,7 @@ export function parse(text) {
       const l = lines[i];
       if (strip(l) && !l.startsWith("#") && !(l.length && isSpace(l[0]))) {
         const head = [...l].slice(0, 40).join("");
-        problems.push(`line ${i + 1}: not a Fluent message (${repr(head)})`);
+        problems.push(`line ${i + 1}: not a Fluent message (${reprStr(head)})`);
       }
       i++;
       continue;

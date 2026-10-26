@@ -3,7 +3,7 @@
 // scalars, one-line or multi-line `[a, b]` / `{a: b}`, comments. Scalars are typed the way
 // PyYAML types them (YAML 1.1: `yes` is a boolean, `~` is null), mapping keys stay text.
 // What it does not read it refuses by name instead of guessing.
-import { rx, strip, lstrip, rstrip } from "./py.js";
+import { reprStr, rx, strip, lstrip, rstrip } from "./py.js";
 import { ValueError } from "./errors.js";
 
 export class YamlUnsupported extends ValueError {}
@@ -157,7 +157,7 @@ class Reader {
       if (ind > indent) throw new YamlError(`line ${n}: unexpected indentation`);
       if (content === "-" || content.startsWith("- ")) break;
       const pair = this.splitKey(content, n);
-      if (pair === null) throw new YamlError(`line ${n}: expected 'key: value', found ${pyRepr([...content].slice(0, 40).join(""))}`);
+      if (pair === null) throw new YamlError(`line ${n}: expected 'key: value', found ${reprStr([...content].slice(0, 40).join(""))}`);
       const key = pair[0];
       let rest = pair[1];
       if (key === "<<") throw new YamlUnsupported(`line ${n}: YAML merge keys (<<) are not read`);
@@ -291,7 +291,7 @@ class Reader {
     const end = Reader.end(text, q);
     let token = text.slice(0, end);
     const tail = strip(text.slice(end));
-    if (tail && !tail.startsWith("#")) throw new YamlError(`line ${n}: unexpected text after the closing quote: ${pyRepr([...tail].slice(0, 30).join(""))}`);
+    if (tail && !tail.startsWith("#")) throw new YamlError(`line ${n}: unexpected text after the closing quote: ${reprStr([...tail].slice(0, 30).join(""))}`);
     if (token.includes("\n")) token = q + Reader.fold(token.slice(1, -1), q) + q;
     return [this.quoted(token, n), j + 1];
   }
@@ -347,7 +347,7 @@ class Reader {
     }
     const [value, pos] = this.flowValue(text, 0, n);
     const tail = strip(text.slice(pos));
-    if (tail && !tail.startsWith("#")) throw new YamlError(`line ${n}: unexpected text after the closing bracket: ${pyRepr([...tail].slice(0, 30).join(""))}`);
+    if (tail && !tail.startsWith("#")) throw new YamlError(`line ${n}: unexpected text after the closing bracket: ${reprStr([...tail].slice(0, 30).join(""))}`);
     return [value, j + 1];
   }
 
@@ -423,22 +423,6 @@ class Reader {
     const token = strip(s.slice(p, k));
     return [typed ? resolve(token) : token, k];
   }
-}
-
-// Python's repr() of a short string
-function pyRepr(s) {
-  const q = s.includes("'") && !s.includes('"') ? '"' : "'";
-  let out = q;
-  for (const ch of s) {
-    if (ch === "\\") out += "\\\\";
-    else if (ch === q) out += "\\" + q;
-    else if (ch === "\n") out += "\\n";
-    else if (ch === "\r") out += "\\r";
-    else if (ch === "\t") out += "\\t";
-    else if (/[\x00-\x1f\x7f]/.test(ch)) out += "\\x" + ch.charCodeAt(0).toString(16).padStart(2, "0");
-    else out += ch;
-  }
-  return out + q;
 }
 
 // The document as values. The root must be a mapping.

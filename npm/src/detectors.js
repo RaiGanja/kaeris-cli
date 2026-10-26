@@ -599,7 +599,8 @@ function computeConsistency(sourceFlat, translatedFlat) {
 
 // ── currency ──────────────────────────────────────────────────────────────────
 
-const CURRENCY_NEAR_NUMBER = T.CURRENCY_NEAR_NUMBER.map(([p, cur]) => [re(p, "g"), cur]);
+// Each pattern needs its token literally, so a text without the token skips the regex.
+const CURRENCY_NEAR_NUMBER = T.CURRENCY_NEAR_NUMBER.map(([p, cur], i) => [re(p, "g"), cur, T.CURRENCY_TOKENS[i % T.CURRENCY_TOKENS.length][0]]);
 const CURRENCY_ANYWHERE = T.CURRENCY_ANYWHERE.map(([p, cur]) => [re(p, "g"), cur]);
 
 // Which currencies this string quotes a price in. Longest token wins, so R$ never registers as $.
@@ -607,7 +608,8 @@ function currenciesIn(text) {
   text = magnitudes(text || "");
   const found = new Set();
   const claimed = new Uint8Array(text.length + 1);
-  for (const [r, cur] of CURRENCY_NEAR_NUMBER) {
+  for (const [r, cur, token] of CURRENCY_NEAR_NUMBER) {
+    if (!text.includes(token)) continue;
     for (const m of text.matchAll(r)) {
       if (claimed[m.index]) continue;
       claimed.fill(1, m.index, m.index + m[0].length);
