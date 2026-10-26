@@ -218,6 +218,43 @@ def _num_key(run: str) -> str:
             return head + "." + tail
     return re.sub(r"[^0-9]", "", t)
 
+# "15k", "15 tys.", "15 ألف", "1万5千": the same fifteen thousand in each language's own
+# words. Read as 15 they made a correct "15.000 $" a changed number and hid the dollar after
+# "tys." from the currency check (R04). Each is rewritten as its value before either reads it.
+_MAGNITUDE_SUFFIX_RE = re.compile(r"(?<![\w.,])(\d+(?:[.,]\d+)?)([kK]|M|bn)(?![^\W\d_])")
+_MAGNITUDE_WORD_RE = re.compile(
+    r"(?<![\w.,])(\d+(?:[.,]\d+)?)[   ]?(?:"
+    r"(?P<b>mld\.?|mrd\.?|Mrd\.|млрд\.?|billion\w*|Milliarde\w*|milliard\w*)"
+    r"|(?P<m>mln\.?|milion\w*|млн\.?|миллион\w*|мільйон\w*|Mio\.|Million\w*|million\w*|millón"
+    r"|millones|milhão|milhões|milione|milioni|مليون)"
+    r"|(?P<t>tys\.?|tysi[ąę]c[ey]?|тыс\.?|тысяч\w*|тис\.?|тисяч\w*|Tsd\.|Tausend|thousand|mille"
+    r"|mila|mil|ألف|آلاف|هزار|हज़ार))(?![^\W\d_])")
+_CJK_MAGNITUDE_RE = re.compile(r"(?:\d+(?:\.\d+)?(?:[億亿萬万만천]|千(?![米克瓦])))+\d*")
+_CJK_UNITS = {"億": 10**8, "亿": 10**8, "萬": 10**4, "万": 10**4, "만": 10**4, "千": 10**3, "천": 10**3}
+_SUFFIX_MULT = {"k": 10**3, "K": 10**3, "M": 10**6, "bn": 10**9}
+
+
+def _magnitude_value(number: str, mult: int) -> str:
+    v = round(float(number.replace(",", ".")) * mult, 6)
+    return str(int(v)) if v == int(v) else repr(v)
+
+
+def _cjk_value(m: "re.Match") -> str:
+    total = 0.0
+    for n, unit in re.findall(r"(\d+(?:\.\d+)?)([億亿萬万만千천]?)", m.group(0)):
+        total += float(n) * _CJK_UNITS.get(unit, 1)
+    return str(int(total)) if total == int(total) else repr(total)
+
+
+def _magnitudes(text: str) -> str:
+    text = _CJK_MAGNITUDE_RE.sub(_cjk_value, text)
+    text = _MAGNITUDE_SUFFIX_RE.sub(
+        lambda m: _magnitude_value(m.group(1), _SUFFIX_MULT[m.group(2)]), text)
+    return _MAGNITUDE_WORD_RE.sub(
+        lambda m: _magnitude_value(m.group(1), 10**9 if m.group("b") else
+                                   10**6 if m.group("m") else 10**3), text)
+
+
 def _extract_numbers(text: str) -> tuple[collections.Counter, dict[str, str]]:
     """(counts, display) for the numeric VALUES in `text`, separator- and script-normalized so
     locale formatting isn't mistaken for a value change: placeholders are stripped first (so a
@@ -226,7 +263,7 @@ def _extract_numbers(text: str) -> tuple[collections.Counter, dict[str, str]]:
     _num_key) — '1,000'/'1.000' both key to '1000' but '9.99' keys to '9.99', not '999'.
     `display` maps each normalized key back to the original run (e.g. '9.99' -> '$9.99') so
     warnings quote what the human actually sees."""
-    stripped = _PH_RE.sub(" ", text)
+    stripped = _magnitudes(_PH_RE.sub(" ", text))
     counts: collections.Counter = collections.Counter()
     display: dict[str, str] = {}
     for run in _NUM_RUN_RE.findall(stripped):
@@ -253,6 +290,8 @@ _NUMBER_WORDS = {
     # people have to keep trusting.
     "first": 1, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6,
     "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10,
+    # "twice the forecast" is "予測の2倍" (R05, client report 11).
+    "once": 1, "twice": 2, "thrice": 3,
 }
 # Whole words only: "someone", "atonement" and "stone" must never read as "one".
 _NUMBER_WORD_RE = re.compile(r"\b(" + "|".join(_NUMBER_WORDS) + r")\b", re.I)
@@ -376,8 +415,9 @@ def _lost_tags(original: str, translated: str) -> list[str]:
 
 
 # Emphasis that opens and closes on text. `*\n拒む*` has its delimiter touching the break, so a
-# Markdown renderer prints two literal asterisks (R03).
-_EMPHASIS_RE = re.compile(r"(?<![*\\])(\*{1,2})(?=[^\s*])(.+?)(?<=[^\s*\\])\1(?!\*)", re.S)
+# Markdown renderer prints two literal asterisks (R03). The body stops at the next `*` or line
+# end, so each try reads only to there: `.+?` made "*a " repeated 80 KB take 23 s.
+_EMPHASIS_RE = re.compile(r"(?<![*\\])(\*{1,2})(?=[^\s*])([^*\n]+?)(?<=[^\s*\\])\1(?!\*)")
 
 
 def _line_break_faults(original: str, translated: str, soft_breaks: bool = False) -> list[str]:
@@ -742,6 +782,10 @@ _CURRENCY_TOKENS = [
     ("BRL", "BRL"), ("JPY", "CJY"), ("CNY", "CJY"), ("PLN", "PLN"), ("CZK", "CZK"),
     ("SEK", "KR"), ("NOK", "KR"), ("DKK", "KR"), ("CHF", "CHF"), ("INR", "INR"),
     ("KRW", "KRW"), ("TRY", "TRY"), ("CAD", "CAD"), ("AUD", "AUD"),
+    # The currency as a word: "15,000ドル", "15 ألف دولار" (R04).
+    ("ドル", "USD"), ("美元", "USD"), ("달러", "USD"), ("دولار", "USD"), ("доллар", "USD"),
+    ("долар", "USD"), ("डॉलर", "USD"), ("ユーロ", "EUR"), ("欧元", "EUR"), ("유로", "EUR"),
+    ("يورو", "EUR"), ("евро", "EUR"), ("євро", "EUR"),
 ]
 # A number, then optional space/nbsp, then the token — or the token then the number. Only
 # money is interesting here: "50 kr" is a price, "Kredit" and "krona" are words, and a rule
@@ -758,7 +802,7 @@ _CURRENCY_NEAR_NUMBER = [
 def _currencies_in(text: str) -> set:
     """Which currencies this string quotes a price in. Longest token wins, so R$ never
     registers as $."""
-    text = text or ""
+    text = _magnitudes(text or "")
     found = set()
     # Claimed positions as a flat map, not a growing list of spans. The list version asked
     # `any(a <= start < b for a, b in seen)` for EVERY match, so a string full of prices cost

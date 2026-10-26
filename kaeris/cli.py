@@ -898,10 +898,14 @@ def _show_qa(client, job, args, path):
 
     ph = sum(len(kv) for kv in warnings.values())
     if ph:
-        warn(f"{ph} translation(s) dropped a placeholder — your app may break:")
+        # The server files every finding here — numbers, prices, line breaks as well as lost
+        # placeholders. Calling them all "dropped a placeholder" told a correct "2倍" that the
+        # app would break (client report 11). A bare token is a lost one; a sentence is read out.
+        warn(f"{ph} translation(s) to check before you ship:")
         for lang, kv in warnings.items():
-            for k, lost in list(kv.items())[:5]:
-                print(f"    [{lang}] {k}: missing {', '.join(lost)}", file=sys.stderr)
+            for k, found in list(kv.items())[:5]:
+                said = [f"missing {f}" if re.match(r"^[{%<$]", f) else f for f in found]
+                print(f"    [{lang}] {k}: {'; '.join(said)}", file=sys.stderr)
 
     over = sum(len(v.get("overflow", [])) for v in qa.values())
     if over:
