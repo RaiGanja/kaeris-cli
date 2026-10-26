@@ -10,6 +10,7 @@ EXISTING key's English text was edited (not just when a key is missing from
 the target) — see changed_or_missing_keys().
 """
 
+import copy
 import hashlib
 import json
 
@@ -35,34 +36,31 @@ def _too_deep(key, depth):
         f"levels KAERIS handles. Flatten that part of the file (or split it) and try again.")
 
 
-def flatten(obj, prefix="", _depth=1):
-    """Flatten nested dict to dotted keys; only string leaves are returned
-    (these are the translatable keys used for delta detection)."""
-    out = {}
-    for k, v in obj.items():
-        key = f"{prefix}.{k}" if prefix else k
-        if isinstance(v, dict):
+def _leaves(obj, prefix="", _depth=1, _path=()):
+    """(dotted key, real path, value) for every leaf. List items are addressed by index
+    (`budgets.0`) exactly as the server flattens them: before 0.2.30 lists were not walked at
+    all, so `--only-new` never saw an edited or added item and `check` never read one."""
+    items = obj.items() if isinstance(obj, dict) else enumerate(obj)
+    for k, v in items:
+        key = f"{prefix}.{k}" if prefix else str(k)
+        path = _path + (k,)
+        if isinstance(v, (dict, list)):
             if _depth >= MAX_NEST_DEPTH:
                 raise _too_deep(key, _depth + 1)
-            out.update(flatten(v, key, _depth + 1))
-        elif isinstance(v, str):
-            out[key] = v
-    return out
+            yield from _leaves(v, key, _depth + 1, path)
+        else:
+            yield key, path, v
+
+
+def flatten(obj, prefix="", _depth=1):
+    """Flatten nested dicts and lists to dotted keys; only string leaves are returned
+    (these are the translatable keys used for delta detection)."""
+    return {k: v for k, _, v in _leaves(obj, prefix, _depth) if isinstance(v, str)}
 
 
 def flatten_all(obj, prefix="", _depth=1):
-    """Flatten keeping every scalar leaf (strings, numbers, booleans, null) —
-    used for merging so non-string values survive round-trips."""
-    out = {}
-    for k, v in obj.items():
-        key = f"{prefix}.{k}" if prefix else k
-        if isinstance(v, dict):
-            if _depth >= MAX_NEST_DEPTH:
-                raise _too_deep(key, _depth + 1)
-            out.update(flatten_all(v, key, _depth + 1))
-        else:
-            out[key] = v
-    return out
+    """Flatten keeping every scalar leaf (strings, numbers, booleans, null)."""
+    return {k: v for k, _, v in _leaves(obj, prefix, _depth)}
 
 
 def unflatten(flat):
@@ -262,13 +260,67 @@ def build_subset(source_obj, keys, flat_style):
     return unflatten(subset_flat)
 
 
-def merge_translation(existing_obj, translated_obj):
+def merge_translation(existing_obj, translated_obj, source_obj=None):
     """Merge freshly translated keys into an existing target document (new keys win).
-    Preserves all existing leaves, including non-string scalars."""
-    ex = flatten_all(existing_obj) if existing_obj else {}
-    tr = flatten_all(translated_obj)
-    ex.update(tr)
-    return ex if is_flat_dict(existing_obj, translated_obj) else unflatten(ex)
+    Preserves all existing leaves, including non-string scalars.
+
+    With `source_obj`, every translated key is put back where it lives in the source, so a
+    list stays a list: `budgets.0` is item 0 of `budgets`, not a new key called "budgets.0".
+    Lists are then cut to the source's length and its numbers/nulls fill their slots."""
+    if source_obj is None:
+        ex = flatten_all(existing_obj) if existing_obj else {}
+        ex.update(flatten_all(translated_obj))
+        return ex if is_flat_dict(existing_obj, translated_obj) else unflatten(ex)
+    paths = {k: p for k, p, _ in _leaves(source_obj)}
+    merged = copy.deepcopy(existing_obj) if existing_obj else {}
+    for key, value in flatten_all(translated_obj).items():
+        path = paths.get(key)
+        if path is None:
+            merged[key] = value
+        else:
+            _set_path(merged, path, value, source_obj)
+    _align_lists(merged, source_obj)
+    return merged
+
+
+def _get(node, seg):
+    if isinstance(node, list):
+        return node[seg] if seg < len(node) else None
+    return node.get(seg)
+
+
+def _put(node, seg, value):
+    if isinstance(node, list):
+        node.extend([None] * (seg + 1 - len(node)))
+    node[seg] = value
+
+
+def _set_path(root, path, value, source):
+    node, src = root, source
+    for seg in path[:-1]:
+        src = src[seg]
+        child = _get(node, seg)
+        want = list if isinstance(src, list) else dict
+        if not isinstance(child, want):
+            child = want()
+            _put(node, seg, child)
+        node = child
+    _put(node, path[-1], value)
+
+
+def _align_lists(target, source):
+    items = source.items() if isinstance(source, dict) else enumerate(source)
+    for k, src in items:
+        tgt = _get(target, k)
+        if isinstance(src, list) and isinstance(tgt, list):
+            del tgt[len(src):]
+            for i, item in enumerate(src):
+                if i < len(tgt) and tgt[i] is None and not isinstance(item, (str, dict, list)):
+                    tgt[i] = item
+                elif i >= len(tgt) and not isinstance(item, (str, dict, list)):
+                    _put(tgt, i, item)
+        if type(src) is type(tgt) and isinstance(src, (dict, list)):
+            _align_lists(tgt, src)
 
 
 def is_flat_dict(existing_obj, translated_obj):

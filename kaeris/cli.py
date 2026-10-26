@@ -710,6 +710,7 @@ def cmd_translate(args):
 
     multi = len(files) > 1
     exit_code = 0
+    args.verify_back = {}
     for path in files:
         if multi:
             info(f"── {os.path.relpath(path)} ──")
@@ -719,11 +720,29 @@ def cmd_translate(args):
             err(str(e))
             code = 1
         exit_code = max(exit_code, code)
+    _write_verify(args, files)
     # What the run cost of the month, once per invocation rather than once per file — and here
     # rather than inside _translate_one so the incremental (--only-new) path, which returns
     # earlier, reports it too.
     _show_quota(client)
     return exit_code
+
+
+def _write_verify(args, files):
+    """One verify.json per run. It used to be written once per file and once per job, so a run
+    over several Markdown pages kept only the last page's back-translations (client report 8)."""
+    back = getattr(args, "verify_back", None)
+    if not back:
+        return
+    if len(files) == 1:
+        body = back[files[0]]
+        out_dir = args.out or os.path.dirname(os.path.abspath(files[0]))
+    else:
+        body = {os.path.relpath(f).replace(os.sep, "/"): b for f, b in back.items()}
+        out_dir = args.out or os.getcwd()
+    vpath = os.path.join(out_dir, "verify.json")
+    write_atomic(vpath, json.dumps(body, ensure_ascii=False, indent=2))
+    ok(f"Verify-meaning back-translations (→ {args.back_lang}) written to {vpath}")
 
 
 def _tm_signature(args, client):
@@ -830,7 +849,7 @@ def _translate_one(client, path, langs, args):
     for w in written:
         print(w)
     # Translation QA — placeholder loss + UI-overflow (free), plus back-translation if --verify
-    data = _show_qa(client, job, display_out, args.verify, args.back_lang)
+    data = _show_qa(client, job, args, path)
     if memory is not None:
         _tm_commit(memory, tm_path, source_flat or (data or {}).get("_source") or {},
                    data, sig)
@@ -845,12 +864,13 @@ def _translate_one(client, path, langs, args):
     return 0
 
 
-def _show_qa(client, job, out_dir, verify, back_lang):
-    """Print Translation QA (placeholder loss, UI-overflow) and, if requested, write the
-    verify-meaning back-translations to a file. Best-effort — never fails the run."""
+def _show_qa(client, job, args, path):
+    """Print Translation QA (placeholder loss, UI-overflow) and, if requested, keep the
+    verify-meaning back-translations for the run's verify.json. Best-effort — never fails
+    the run."""
     try:
         data = client.preview(job)
-    except KaerisError:
+    except Exception:
         return None
     warnings = data.get("_warnings") or {}
     qa = data.get("_qa") or {}
@@ -874,10 +894,10 @@ def _show_qa(client, job, out_dir, verify, back_lang):
                 print(f"    [{lang}] {o['key']}: +{o['pct']}%  \"{o['tr'][:50]}\"", file=sys.stderr)
                 shown += 1
 
-    if verify and back:
-        vpath = os.path.join(out_dir, "verify.json")
-        write_atomic(vpath, json.dumps(back, ensure_ascii=False, indent=2))
-        ok(f"Verify-meaning back-translations (→ {back_lang}) written to {vpath}")
+    if args.verify and back:
+        sink = args.__dict__.setdefault("verify_back", {}).setdefault(path, {})
+        for lang, kv in back.items():
+            sink.setdefault(lang, {}).update(kv)
 
     if not ph and not over:
         ok("Translation QA: no placeholder loss, no overflow risks")
@@ -991,6 +1011,7 @@ def _translate_incremental(client, path, out_dir, langs, args):
             info(f"{lang}: {n_reused} of them come from the project memory, not the model")
         job = client.submit(os.path.basename(path), content, [lang], _glossary(args),
                             tone=_tone(args), icu=args.icu, reuse=reuse,
+                            verify=args.verify, back_lang=args.back_lang,
                             app_context=_app_context(args))
         status = client.poll(job, on_progress=None if args.quiet else _progress_printer())
         members = client.download(job)
@@ -1010,7 +1031,8 @@ def _translate_incremental(client, path, out_dir, langs, args):
         rec = _show_receipt(client, job)
         if rec:
             receipts.append(rec)
-        merged = inc.merge_translation(existing, translated)
+        _show_qa(client, job, args, path)
+        merged = inc.merge_translation(existing, translated, source_obj)
         if is_arb:
             merged["@@locale"] = lang  # stamp the target locale on the written ARB
         inc.dump_json(merged, target_path)
