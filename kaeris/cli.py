@@ -1480,9 +1480,11 @@ def build_parser():
     t.add_argument("--translate-service-keys", action="store_true",
                    help="Also translate keys that start with '_' (e.g. \"_status\"). By default "
                         "they are copied through untouched in JSON, YAML and ARB.")
+    # Help text stays ASCII: `--help` printed to a legacy Windows console (cp1252) would raise
+    # on the native digits themselves.
     t.add_argument("--digits", choices=dg.MODES, default=None,
                    help="Digits in the result: 'native' (default) keeps what the language writes "
-                        "(fa ۲۰۲۷, bn ২০২৭, hi २०२७), 'latin' rewrites every one to 0-9. "
+                        "(Persian, Bengali, Hindi, Arabic... digits), 'latin' rewrites every one to 0-9. "
                         "Placeholders are left as they are. Also \"digits\" in kaeris.json")
     t.add_argument("--lang-case", dest="lang_case", choices=LANG_CASES, default=None,
                    help="Case of the language code in new file and folder names: 'keep' "

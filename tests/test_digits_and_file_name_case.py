@@ -158,6 +158,9 @@ def test_digits_is_in_translate_help(capsys):
         K.main(["translate", "--help"])
     out = capsys.readouterr().out
     assert "--digits" in out and "latin" in out and "native" in out
+    # A legacy Windows console (cp1252) must still be able to print it: an example like
+    # "fa ۲۰۲۷" in the help made `kaeris translate --help` raise UnicodeEncodeError there.
+    out.encode("cp1252")
 
 
 # ── file-name case ───────────────────────────────────────────────────────────
