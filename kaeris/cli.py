@@ -631,7 +631,10 @@ def cmd_check(args):
             ok("all locales complete & placeholder-safe")
 
     if args.json:
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        # A cp1251/cp1252 console (PowerShell 5.1, cmd, windows-latest) cannot encode "→" or
+        # the translations themselves: the report raised and CI got an empty file (R01).
+        utf8 = (sys.stdout.encoding or "").lower().replace("-", "") in ("utf8", "utf8sig")
+        print(json.dumps(result, ensure_ascii=not utf8, indent=2))
 
     return 1 if fail else 0
 
