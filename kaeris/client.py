@@ -213,6 +213,7 @@ class KaerisClient:
         # one client keeps several jobs in flight (--jobs), for every job it started.
         self.last_edit_token = ""
         self._edit_tokens = {}
+        self._job_warnings = {}
         self._poll_slowdown = 1.0
 
     def poll_interval(self, base):
@@ -399,7 +400,13 @@ class KaerisClient:
         # used to do — turned the person who paid for the run into a stranger to it.
         self.last_edit_token = data.get("edit_token") or ""
         self._edit_tokens[job_id] = self.last_edit_token
+        # What the server says it did not do with the request (a language it left out, ...).
+        # Kept per job: several jobs share one client when they run side by side.
+        self._job_warnings[job_id] = [str(w) for w in (data.get("warnings") or [])]
         return job_id
+
+    def job_warnings(self, job_id):
+        return list(self._job_warnings.get(job_id, ()))
 
     def parse(self, filename, content):
         """Parse a locale file into its flat {key: value} map via /api/parse — no translation,

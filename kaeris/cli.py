@@ -485,20 +485,58 @@ def cmd_languages(args):
     return 0
 
 
-def _unknown_langs(client, langs):
-    """Targets whose language the server does not offer, found before any file is sent.
+_LANG_TAG_RE = re.compile(r"[A-Za-z]{2,3}(?:[-_](?:[A-Za-z]{2}|[A-Za-z]{4}|\d{3}))*")
 
-    Only the primary subtag is compared (pt-BR is fine when pt is offered), so a regional
-    spelling the server accepts is never refused here. When the list cannot be fetched
-    (offline, an older server) nothing is refused: the server still answers for itself."""
+
+def _canon_lang(tag):
+    """'fr-ca' → 'fr-CA', 'zh_hant' → 'zh-Hant', 'PT-pt' → 'pt-PT': language lower, script
+    Title, region UPPER, either separator. Anything that is not shaped like a language tag is
+    returned as it was written, so it can be refused by name."""
+    tag = str(tag).strip()
+    if not _LANG_TAG_RE.fullmatch(tag):
+        return tag
+    first, *rest = re.split(r"[-_]", tag)
+    return "-".join([first.lower()] + [p.upper() if len(p) == 2 else p.title() if len(p) == 4
+                                       else p for p in rest])
+
+
+def _split_langs(raw):
+    """'fr-ca, pt_PT' (or a list from kaeris.json) → ['fr-CA', 'pt-PT'], each language once.
+
+    The case of a code is never the user's problem: file names are written lower-case
+    (zh-hant.json) and the server's codes are not. `--lang-case` is only about the names of
+    the files that are written, never about the codes sent."""
+    items = raw.split(",") if isinstance(raw, str) else raw
+    out = []
+    for item in items or []:
+        item = str(item).strip()
+        if item and _canon_lang(item) not in out:
+            out.append(_canon_lang(item))
+    return out
+
+
+def _unknown_langs(client, langs):
+    """Targets the server does not offer, found before any file is sent.
+
+    The server takes exactly the codes it lists (pt-PT, not pt-BR), so that is what is
+    compared; a regional code whose language is offered is still refused, with the offered
+    ones named, because the server used to drop it from the run and say so only in a warning.
+    When the list cannot be fetched (offline, an older server) nothing is refused here: the
+    server still answers for itself."""
     try:
         known = client.languages()
     except Exception:
         return []
     if not isinstance(known, dict) or not known:
         return []
-    bases = {str(c).replace("_", "-").split("-")[0].lower() for c in known}
-    return [l for l in langs if re.split(r"[-_]", l)[0].lower() not in bases]
+    offered = {_canon_lang(c) for c in known}
+    out = []
+    for l in langs:
+        if l in offered:
+            continue
+        near = sorted(c for c in offered if c.split("-")[0] == l.split("-")[0].lower())
+        out.append(f"{l} (offered: {', '.join(near)})" if near else l)
+    return out
 
 
 _XC_MARKER_RE = re.compile(r"((?:⟦[^⟦⟧]*⟧)+)")
@@ -553,10 +591,7 @@ def cmd_check(args):
             return {k: v for k, v in obj.items() if not str(k).startswith("@")}
         return obj
 
-    if args.langs:
-        langs = [l.strip() for l in args.langs.split(",") if l.strip()]
-    else:
-        langs = [str(l).strip() for l in (config.get("langs") or []) if str(l).strip()]
+    langs = _split_langs(args.langs if args.langs else config.get("langs"))
     if not langs:
         err("No target languages given (--langs es,fr,de, or 'langs' in kaeris.json)")
         return 2
@@ -764,6 +799,10 @@ def _run_job(client, fname, content, langs, args, reuse=None, label=""):
                             tone=_tone(args), icu=args.icu,
                             app_context=_app_context(args),
                             **_service_keys_opt(args))
+        # The server accepted the job but may say it left something out: a silent drop is
+        # a lost language. Said once per job, whatever the answer turns out to be.
+        for w in (getattr(client, "job_warnings", lambda j: [])(job) if attempt == 0 else []):
+            warn(f"{label or fname}: server: {w}")
         try:
             status = client.poll(job, on_progress=None if args.quiet else _progress_printer(label))
             break
@@ -815,10 +854,7 @@ def cmd_translate(args):
         err(f"No source file(s) found: {raw}")
         return 1
 
-    if args.langs:
-        langs = [l.strip() for l in args.langs.split(",") if l.strip()]
-    else:
-        langs = [str(l).strip() for l in (config.get("langs") or []) if str(l).strip()]
+    langs = _split_langs(args.langs if args.langs else config.get("langs"))
     if not langs:
         err("No target languages given (use --langs es,fr,de, or set 'langs' in kaeris.json)")
         return 1
@@ -848,7 +884,7 @@ def cmd_translate(args):
     unknown = _unknown_langs(client, langs)
     if unknown:
         err(f"Unknown language code: {', '.join(unknown)}. Run 'kaeris languages' for the list "
-            "(codes like de, ja, pt-BR, zh-Hant).")
+            "(codes like de, ja, pt-PT, zh-Hant).")
         return 1
     if not getattr(client, "api_key", "fake"):
         _show_demo_notice(client)

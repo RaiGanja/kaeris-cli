@@ -54,8 +54,16 @@ class TestUnknownLanguage(unittest.TestCase):
         _, text = _run("de,xx,qq", _Stub())
         self.assertIn("xx, qq", text)
 
-    def test_a_regional_spelling_of_an_offered_language_passes(self):
-        _, text = _run("pt-BR,zh-Hant,ja", _Stub())
+    def test_a_regional_spelling_the_server_does_not_list_is_refused_with_the_offered_one(self):
+        # The server takes exactly the codes it lists; pt-BR used to pass here and then be
+        # dropped from the run on the server (reported only in a warning nobody read).
+        code, text = _run("pt-BR,zh-Hant,ja", _Stub())
+        self.assertEqual(code, 1)
+        self.assertIn("Unknown language code: pt-BR (offered: pt)", text)
+        self.assertNotIn("zh-Hant,", text.split("Run 'kaeris")[0])
+
+    def test_the_codes_the_server_lists_pass_in_any_case(self):
+        _, text = _run("pt,ZH-hant,ja", _Stub())
         self.assertNotIn("Unknown language", text)
 
     def test_nothing_is_refused_when_the_list_cannot_be_fetched(self):
