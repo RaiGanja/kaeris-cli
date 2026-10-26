@@ -1,39 +1,49 @@
-# CLI: скорость, цифры, регистр имён, PATH — план (26.10.2026)
+# CLI: speed, digits, file-name case, PATH (0.2.32 candidate)
 
-Источник: прогон студии шаблонов на 0.2.31 (Ember: en.json ~176 строк + 3 devlog md,
-12 языков пачками по 6, `--verify --tm --lock --context --tone neutral --keep ...`):
-23–26 мин на пачку, цифры fa/bn местные, `zh-Hant.json` при `zh-hant.json` в проекте,
-`kaeris` не в PATH после `pip install` на Windows (pythoncore-3.14).
+From a customer run on 0.2.31: one JSON file (~176 strings) and three Markdown pages into 12
+languages in two batches of six, with `--verify --tm --lock --context --tone --keep`. Each batch
+took 23-26 minutes; fa/bn came back with native digits; `zh-Hant.json` was written next to the
+project's `zh-hant.json`; `kaeris` was not found after `pip install` on Windows (Python 3.14
+from the install manager).
 
-## 1. Скорость
-Что видно в коде до замера:
-- `cmd_translate` гонит файлы **строго по очереди**: 4 файла = 4 задачи одна за другой.
-- Сервер даёт одной задаче 8 одновременных вызовов модели (`TRANSLATE_PER_JOB_CONCURRENCY`),
-  весь процесс — 24 (`TRANSLATE_CONCURRENCY`). Одна задача на сервере не может занять больше 8.
-- С `--verify` на каждую пачку строк 3 вызова (перевод, обратный перевод, судья смысла).
-- `--only-new` (JSON/ARB) шлёт по задаче **на каждый язык**, тоже по очереди.
+## 1. Speed
 
-План: замерить «до» на уменьшенном входе Ember (локальный бэкенд, dev-ключ), потом
-отправлять задачи файлов параллельно (ограничение `--jobs N`, по умолчанию 4: 4×8 упирается
-в общий лимит сервера 24, лимиты провайдера держит сервер), а скачивание, запись, QA,
-память переводов и квитанции — по порядку файлов, как сейчас. Память переводов перед записью
-перечитывается, чтобы параллельные файлы не затирали друг друга. Тот же приём для языков
-в `--only-new`. Замер «после» на том же входе.
+Measured on one input (an 84-string JSON and two pages, fa/bn/ja, the same flags), local
+server, same model:
 
-## 2. Цифры `--digits latin|native`
-По умолчанию `native` (как сейчас: поведение других пользователей не меняется; для fa/bn
-местные цифры — норма письма). `latin` переводит любые не-ASCII десятичные цифры
-(۲۰۲۷, ২০২৭, २०२७, ٢٠٢٧ …) в 0–9 в результате перевода, не трогая `{…}`, `%…`, `<…>`.
-Ключ `digits` в kaeris.json. Видно в `translate --help`.
+| CLI | time | JSON / page / page |
+|---|---|---|
+| 0.2.31 — files one after another | 395 s | 259 / 90 / 44 s |
+| this branch — `--jobs 4` | 340 s (−14%) | 339 / 51 / 89 s |
+| this branch, server running the meaning check in parallel (prototype) | 119 s (×3.3) | 117 / 56 / 53 s |
 
-## 3. Регистр имён файлов
-Имя берётся из имени файла в архиве сервера (`zh-Hant.json`) → `_target_path`. Починка:
-если в целевой папке уже есть файл/папка языка в другом регистре (`zh-hant.json`,
-`devlog/zh-hant/`), писать в него. Плюс `--lang-case lower` для новых проектов.
-Без существующих файлов и без опции — как сейчас.
+The same number of model calls in every run, no rate-limit errors, the lines flagged for review
+within the model's own run-to-run spread.
 
-## 4. PATH на Windows
-Проверить `python -m kaeris` (есть `__main__.py`), раздел в README: как найти
-`Scripts\kaeris.exe`, как добавить в PATH, `py -m kaeris` как обход.
+Where the time goes: with `--verify` the server's meaning check runs one call after another —
+language after language, batch after batch, judge chunk after judge chunk. The longest file's
+check is the critical path, so sending files side by side helps only a little; the large win is
+on the server and is tracked there.
 
-Каждая починка — сначала падающий тест. CI зелёный на ветке, в main не мёржим.
+In the CLI:
+- `--jobs N` (default 4, `jobs` in kaeris.json): files go to the server side by side; under
+  `--only-new` the per-language jobs of a file do too. Files, QA, memory and receipts are still
+  written and reported in order. A failing language under `--only-new` no longer drops the
+  languages that succeeded.
+- The owner's edit token is kept per job, so parallel receipts stay the owner's.
+- A 429 on submit is waited out (Retry-After, at most 60 s, 3 retries).
+- A receipt asked for a moment too early (409) is asked again.
+
+## 2. Digits — `--digits native|latin`
+Default `native`: nobody's output changes. `latin` rewrites every non-ASCII decimal digit
+(Persian, Bengali, Devanagari, Arabic-Indic, …) in the result to 0-9, placeholders untouched.
+`digits` in kaeris.json.
+
+## 3. File-name case
+An existing file or folder that differs from the language code only in case (`zh-hant.json`,
+`devlog/zh-hant/`) is written to under its own name — by translate, `--only-new` and check.
+`--lang-case lower` for a project that has none yet. Without either, names are as before.
+
+## 4. PATH on Windows
+README: "kaeris is not recognized" — `python -m kaeris`, how to find the Scripts folder.
+CI runs `python -m kaeris` from the built wheel and on windows-latest with Python 3.14.

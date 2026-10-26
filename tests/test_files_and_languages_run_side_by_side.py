@@ -1,9 +1,9 @@
 """A run over several files waited for each one before sending the next (client report, 0.2.31).
 
-Ember: en.json + 3 devlog pages, 6 languages, --verify: 23-26 minutes. Measured 26.10.2026 on a
-local server, same input before the fix (en.json 84 strings + 2 pages, fa/bn/ja, --verify):
-558 s, of which the pages 77 s and 114 s were spent queued behind each other and the JSON. The
-server already runs the jobs side by side; the CLI never gave it more than one.
+A JSON file and 3 Markdown pages, 6 languages, --verify: 23-26 minutes. The server runs jobs
+side by side; the CLI never gave it more than one, so every page waited for the one before.
+Measured 26.10.2026 (84 strings + 2 pages, fa/bn/ja, --verify): 395 s before, 340 s after —
+the rest is the server's own meaning check, see docs/cli-speed-digits-plan.md.
 
 `--jobs N` (default 4) keeps up to N jobs in flight. What the person reads — the written files,
 QA, receipts, verify.json — still comes out file by file, in order. `--only-new` sends one job
