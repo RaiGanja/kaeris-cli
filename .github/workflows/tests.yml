@@ -40,7 +40,8 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
-      - run: pip install pytest
+      # pyyaml is test-only: tests/test_miniyaml.py compares the stdlib YAML reader against it.
+      - run: pip install pytest pyyaml
 
       - name: Test suite
         run: python -m pytest -q -rs | tee pytest.txt
@@ -62,6 +63,10 @@ jobs:
           #                               parser against the backend's, which lives in the
           #                               private repo. Runs in the backend's CI, same as the
           #                               detector parity above.
+          #   test_formats_match_the_server — compares the stdlib format readers against the
+          #                               backend's parse_source/write_translation_zip, which
+          #                               live in the private repo. The backend's CI runs this
+          #                               module with KAERIS_BACKEND set, same as detector parity.
           #   test_dist_matches_the_tree — guards `twine upload dist/*` against publishing a
           #                               stale wheel. It has meaning only where a wheel has
           #                               been built, i.e. on the machine doing the release.
@@ -73,7 +78,7 @@ jobs:
           # still fails the build — that is the whole point of the check.
           if grep -qE '[0-9]+ skipped' pytest.txt; then
             unexpected=$(grep -E '^SKIPPED' pytest.txt \
-              | grep -vE 'test_detector_parity|test_dist_matches_the_tree|test_check_xcstrings|test_encoding_parity' || true)
+              | grep -vE 'test_detector_parity|test_dist_matches_the_tree|test_check_xcstrings|test_encoding_parity|test_formats_match_the_server' || true)
             if [ -n "$unexpected" ]; then
               echo "::error::unexpected skip — a dependency is missing and real tests are not running"
               echo "$unexpected"

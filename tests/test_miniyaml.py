@@ -52,7 +52,11 @@ def test_reads_what_pyyaml_reads(name):
         # the server keeps keys as their written text; PyYAML types them
         expected = {"404": "not found", "yes": "affirmative"}
     elif name == "dash_strings":
-        pytest.skip("`b: - not a list` is invalid YAML for PyYAML; this reader takes it as text")
+        # `b: - not a list` is invalid YAML for PyYAML; this reader takes it as text
+        with pytest.raises(yaml.YAMLError):
+            yaml.safe_load(text)
+        assert my.load(text)["b"] == "- not a list"
+        return
     else:
         expected = _norm(yaml.safe_load(text))
     assert my.load(text) == expected
