@@ -85,6 +85,9 @@ kaeris translate locales/en.json --langs de,ja --context "a mobile bank for teen
 # Translation QA — back-translation and meaning check for your review (verify.json lists the lines to read)
 kaeris translate locales/en.json --langs de,ja --verify
 
+# …and write the fixes it found into the files (free, offline; see "kaeris fix" below)
+kaeris translate locales/en.json --langs de,ja --verify --apply-fixes
+
 # List all supported languages
 kaeris languages
 ```
@@ -191,6 +194,25 @@ nothing used to say so; the run just looked clean.
 
 It carries counts and your own settings, never your strings, so it is safe to commit next to
 the translations and read in a diff.
+
+## `kaeris fix` — apply what `--verify` found
+
+`--verify` writes `verify.json`: every line to read, why, and — where the meaning check had one —
+a corrected translation. `kaeris fix` writes those into your translated files:
+
+```bash
+kaeris fix --from locales/verify.json            # apply
+kaeris fix --from locales/verify.json --dry-run  # only say what would change
+```
+
+- A suggested fix is written only if our checks pass it: every placeholder, tag and ICU branch,
+  the line breaks and the `*emphasis*` of the source are still there, and nothing new is wrong.
+- A line that lost a line break or tore an emphasis, with no fix suggested, gets them put back
+  where they fall in the source.
+- It prints what was applied and, for every line it left alone, why. A line that needs a new
+  translation is named, not re-translated: that would be a model call, charged to your quota
+  like any translation. Applying is free and makes no network call.
+- The file keeps its layout, encoding and line endings; running it twice changes nothing.
 
 ## `kaeris check` — the i18n firewall
 
@@ -364,6 +386,7 @@ Anything not passed falls back to `kaeris.json`, then to the built-in default.
 | `--source-lang en` | base language code; also detects `locales/<lang>/<namespace>.json` layouts |
 | `--verify` | back-translation and meaning check for your review; prints `⚠ meaning:` lines and writes `verify.json` |
 | `--back-lang en` | language to back-translate into with `--verify` |
+| `--apply-fixes` | with `--verify`: write the fixes into the translated files, only where our checks pass them; same as `kaeris fix` afterwards |
 | `--translate-service-keys` | also translate keys that start with `_` (`"_status"`); by default they are copied through untouched in JSON, YAML and ARB |
 | `--digits native\|latin` | digits in the result: `native` (default) keeps what the language writes (fa ۲۰۲۷, bn ২০২৭), `latin` rewrites them to 0-9; placeholders are left as they are |
 | `--lang-case keep\|lower` | case of the language code in new file and folder names (`zh-Hant.json` or `zh-hant.json`); a file or folder that already exists in another case is always written under its own name |

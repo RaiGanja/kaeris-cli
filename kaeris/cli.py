@@ -19,6 +19,7 @@ from . import xcstrings as xc
 from . import tm as tmem
 from . import detectors as det
 from . import digits as dg
+from . import fixes as fx
 
 CONFIG_FILENAME = "kaeris.json"
 
@@ -884,7 +885,13 @@ def cmd_translate(args):
                 err(str(e))
                 code = 1
             exit_code = max(exit_code, code)
-    _write_verify(args, files)
+    vpath = _write_verify(args, files)
+    if getattr(args, "apply_fixes", False):
+        if not args.verify:
+            warn("--apply-fixes needs --verify: the fixes come from the meaning check. "
+                 "Nothing applied.")
+        elif vpath:
+            _apply_verify(vpath, glossary=_glossary(args))
     _say_absent_glossary()
     # What the run cost of the month, once per invocation rather than once per file — and here
     # rather than inside _translate_one so the incremental (--only-new) path, which returns
@@ -898,8 +905,13 @@ def _write_verify(args, files):
     over several Markdown pages kept only the last page's back-translations (client report 8)."""
     back = getattr(args, "verify_back", None)
     if not back:
-        return
+        return None
     reviews = getattr(args, "verify_review", None) or {}
+    targets = getattr(args, "verify_files", None) or {}
+    if len(files) == 1:
+        out_dir = args.out or os.path.dirname(os.path.abspath(files[0]))
+    else:
+        out_dir = args.out or os.getcwd()
 
     def one(f):
         # Back-translations keep their old place ({lang: {key: text}}) so a script that read
@@ -910,17 +922,73 @@ def _write_verify(args, files):
             b["_review"] = {lang: v["lines"] for lang, v in r.items()}
             b["_summary"] = {name: sum(v["summary"][name] for v in r.values())
                              for name in ("lines", "to_review", "error", "review", "unchecked")}
+        if targets.get(f):
+            # Relative to verify.json, so the project folder can move and `kaeris fix` still
+            # finds each language's file.
+            b["_files"] = {lang: os.path.relpath(p, out_dir).replace(os.sep, "/")
+                           for lang, p in sorted(targets[f].items())}
         return b
 
     if len(files) == 1:
         body = one(files[0])
-        out_dir = args.out or os.path.dirname(os.path.abspath(files[0]))
     else:
         body = {os.path.relpath(f).replace(os.sep, "/"): one(f) for f in back}
-        out_dir = args.out or os.getcwd()
     vpath = os.path.join(out_dir, "verify.json")
     write_atomic(vpath, json.dumps(body, ensure_ascii=False, indent=2))
     ok(f"Back-translations (→ {args.back_lang}) and the lines to review written to {vpath}")
+    return vpath
+
+
+def _apply_verify(vpath, glossary=None, only=None, dry_run=False):
+    """Write the fixes verify.json carries into the translated files (kaeris/fixes.py). Offline:
+    nothing here talks to the server, and nothing is charged. Returns the exit code."""
+    try:
+        body = json.loads(read_text(vpath))
+    except (OSError, ValueError) as e:
+        err(f"Cannot read {vpath}: {getattr(e, 'strerror', None) or e}")
+        return 2
+    base = os.path.dirname(os.path.abspath(vpath))
+    rows = []
+    for name, section in fx.sections(body):
+        if only and name and not any(os.path.relpath(o).replace(os.sep, "/") == name for o in only):
+            continue
+        rows += fx.plan(section.get("_review"), section.get("_files"), base, glossary)
+    if not rows:
+        ok(f"Nothing to fix: {vpath} lists no lines to review")
+        return 0
+    done = fx.apply(rows, dry_run=dry_run)
+    applied = [r for r in done if r[4] == fx.APPLIED]
+    already = [r for r in done if r[4] == fx.ALREADY]
+    skipped = [r for r in done if r[4] == fx.SKIPPED]
+    by_fix = sum(1 for r in applied if r[3] == "fix")
+    files = {r[2] for r in applied}
+    if applied:
+        verb = "Would apply" if dry_run else "Applied"
+        ok(f"{verb} {len(applied)} fix(es) in {len(files)} file(s): {by_fix} suggested by "
+           f"verify, {len(applied) - by_fix} line break / emphasis put back. Free, no network.")
+        for lang, key, path, how, _s, _w in applied:
+            what = "suggested fix" if how == "fix" else "line breaks / emphasis"
+            print(f"    [{lang}] {key}: {what} → {os.path.relpath(path)}", file=sys.stderr)
+    if already:
+        info(f"{len(already)} fix(es) already in the files")
+    if skipped:
+        warn(f"{len(skipped)} line(s) not fixed:")
+        for lang, key, _p, _h, _s, why in skipped[:30]:
+            print(f"    [{lang}] {key}: {why}", file=sys.stderr)
+        if len(skipped) > 30:
+            print(f"    … and {len(skipped) - 30} more — all of them in {vpath}", file=sys.stderr)
+    return 0
+
+
+def cmd_fix(args):
+    config, _ = _load_config(args)
+    keep = args.keep if args.keep else ",".join(config.get("keep") or config.get("glossary") or [])
+    glossary = [t.strip() for t in keep.split(",") if t.strip()] or None
+    if not os.path.isfile(args.source):
+        err(f"No verify file at {args.source} — run `kaeris translate … --verify` first")
+        return 2
+    return _apply_verify(args.source, glossary=glossary, only=args.files or None,
+                         dry_run=args.dry_run)
 
 
 def _tm_signature(args, client):
@@ -1036,8 +1104,11 @@ def _finish_one(client, ticket, args):
     if error is not None:
         raise error
     job, status, members = result
+    by_lang = {}
     written = _write_members(members, path, args.out, args.source_lang,
-                             digits=args.digits, lang_case=args.lang_case)
+                             digits=args.digits, lang_case=args.lang_case, by_lang=by_lang)
+    # Where each language landed, for verify.json: `kaeris fix` writes the fixes there.
+    args.__dict__.setdefault("verify_files", {})[path] = by_lang
     # Named from where the files actually went: the source folder was printed here even when
     # every file landed in work/<lang>/ (client report 9).
     dirs = {os.path.dirname(os.path.abspath(w)) for w in written}
@@ -1091,13 +1162,21 @@ def _show_qa(client, job, args, path):
             continue
         ph += len(lines)
         warn(f"{len(lines)} translation(s) {heading}:")
+        # A line that breaks the app is worth its own line in the log, up to a screenful per
+        # language; past the limit the rest is counted, never dropped. Five per language and
+        # nothing said hid the eighth bn line, a stray * the page prints (0.2.32 re-run).
+        limit = 20 if group == "break" else 5
         shown = {}
         for lang, k, found in lines:
             shown[lang] = shown.get(lang, 0) + 1
-            if shown[lang] > 5:
+            if shown[lang] > limit:
                 continue
             said = [f"missing {f}" if re.match(r"^[{%<$]", f) else f for f in found]
             print(f"    [{lang}] {k}: {'; '.join(said)}", file=sys.stderr)
+        for lang, n in shown.items():
+            if n > limit:
+                where = "all of them in verify.json" if args.verify else "run with --verify to list them all"
+                print(f"    … and {n - limit} more for [{lang}] — {where}", file=sys.stderr)
 
     over = sum(len(v.get("overflow", [])) for v in qa.values())
     if over:
@@ -1120,7 +1199,8 @@ def _show_qa(client, job, args, path):
         lines = args.__dict__.setdefault("verify_review", {}).setdefault(path, {})
         for lang, r in review.items():
             lines[lang] = _review_entries(lang, r, meaning.get(lang) or {},
-                                          warnings.get(lang) or {})
+                                          warnings.get(lang) or {}, data.get("_source") or {},
+                                          data.get(lang) or {})
 
     if not ph and not over:
         ok("Translation QA: no placeholder loss, no overflow risks")
@@ -1160,12 +1240,17 @@ def _show_meaning(meaning, review):
              "not answer) — read them yourself")
 
 
-def _review_entries(lang, review, meaning, warnings):
-    """verify.json's `_review` for one language: every line that is not ok, with why."""
+def _review_entries(lang, review, meaning, warnings, source=None, translations=None):
+    """verify.json's `_review` for one language: every line that is not ok, with why — and the
+    source and the translation it judged, so `kaeris fix` can check a fix and find the line
+    without asking the server again."""
     out = {}
+    source, translations = source or {}, translations or {}
     for status in ("error", "review", "unchecked"):
         for k in review.get(status, []):
             entry = {"status": status}
+            if isinstance(source.get(k), str) and isinstance(translations.get(k), str):
+                entry["source"], entry["translation"] = source[k], translations[k]
             f = meaning.get(k) or {}
             if f.get("issue"):
                 entry["meaning"] = f["issue"]
@@ -1432,9 +1517,11 @@ def write_atomic(path, data, *, binary=False):
 _MERGED_MEMBER_EXTS = (".xcstrings",)
 
 
-def _write_members(members, src_path, out_dir, source_lang, digits="native", lang_case="keep"):
+def _write_members(members, src_path, out_dir, source_lang, digits="native", lang_case="keep",
+                   by_lang=None):
     """Write each downloaded member (named `<lang><ext>`) to its namespace-mirrored
-    target path (see _target_path) instead of a flat out_dir."""
+    target path (see _target_path) instead of a flat out_dir. `by_lang` collects where each
+    language went."""
     written = []
     for name, data in members.items():
         if digits == "latin":
@@ -1458,6 +1545,8 @@ def _write_members(members, src_path, out_dir, source_lang, digits="native", lan
         os.makedirs(os.path.dirname(dest) or out_dir or ".", exist_ok=True)
         write_atomic(dest, data, binary=True)
         written.append(dest)
+        if by_lang is not None:
+            by_lang[lang] = dest
     return written
 
 
@@ -1523,6 +1612,12 @@ def build_parser():
                         "write verify.json with the lines to read")
     t.add_argument("--back-lang", default="en",
                    help="Language for --verify back-translation (default: en)")
+    t.add_argument("--apply-fixes", dest="apply_fixes", action="store_true",
+                   help="With --verify: write the fixes it found into the translated files — "
+                        "only those our checks pass (placeholders, tags, ICU, line breaks, "
+                        "*emphasis* intact); a lost line break or emphasis is put back. Free and "
+                        "offline; what was not applied is listed with the reason. Same as "
+                        "running `kaeris fix` afterwards")
     t.add_argument("--tone", choices=["neutral", "formal", "casual"], default=None,
                    help="Tone of voice for translations (default: 'tone' in kaeris.json, else neutral)")
     t.add_argument("--icu", action="store_true", default=None,
@@ -1561,6 +1656,26 @@ def build_parser():
                         "characters charged vs reused, settings, glossary terms actually "
                         "found) — counts only, no strings, safe to commit.")
     t.set_defaults(func=cmd_translate)
+
+    fp = sub.add_parser(
+        "fix", help="Apply the fixes in verify.json to the translated files (free, offline)",
+        description="Write what `kaeris translate --verify` found into the translated files: "
+                    "the meaning check's corrected line where our checks pass it (placeholders, "
+                    "tags, ICU, line breaks, *emphasis* intact, nothing new broken), and a lost "
+                    "line break or torn emphasis put back where no fix was suggested. Nothing is "
+                    "sent anywhere and nothing is charged; a line that needs a new translation "
+                    "is listed, not re-translated. Running it twice changes nothing.",
+    )
+    fp.add_argument("files", nargs="*",
+                    help="Only these source files, for a verify.json written by a run over "
+                         "several (default: all of them)")
+    fp.add_argument("--from", dest="source", default="verify.json", metavar="PATH",
+                    help="The verify.json to apply (default: ./verify.json)")
+    fp.add_argument("--keep", "--glossary", dest="keep", default=None,
+                    help="Terms a fix must keep verbatim (default: 'keep' in kaeris.json)")
+    fp.add_argument("--dry-run", action="store_true",
+                    help="Say what would be written, write nothing")
+    fp.set_defaults(func=cmd_fix)
 
     ls = sub.add_parser("languages", help="List supported target languages")
     ls.set_defaults(func=cmd_languages)
