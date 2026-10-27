@@ -22,6 +22,9 @@ the SARIF file. These are the places where the two are known to differ.
   the usual codes only.
 - **Unicode tables.** Character classes (`\w`, letter, mark, whitespace) come from the Unicode
   version of Python 3.14 in the original and of the Node in use here. No difference has been seen.
+- **`kaeris-glossary.json`.** Not read here yet: the port has no `--glossary-file`, and a
+  `kaeris-glossary.json` beside `kaeris.json` is ignored, so a term translated another way is
+  reported by the original only. `--glossary` / `keep` (terms kept verbatim) work in both.
 - **Commands.** `translate`, `fix`, `init`, `languages` and `quota` are not in this package; they
   print a pointer to `pipx install kaeris` and exit with 2. There is no update notice.
 

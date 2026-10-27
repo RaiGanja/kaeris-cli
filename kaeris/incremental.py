@@ -217,14 +217,19 @@ def lock_settings(lock):
     return None
 
 
-def build_lock(keys, settings, langs=None):
+def build_lock(keys, settings, langs=None, glossary=None):
     """Assemble a lock document: settings, the global baseline, and per-language baselines.
 
     `keys` stays the "reached every language" map so an older client reading this lock behaves
-    as it always did; `langs` is what a current client detects against."""
+    as it always did; `langs` is what a current client detects against. `glossary` is
+    {lang: {term: fingerprint}} of kaeris-glossary.json as last applied (glossary.py): kept out
+    of `settings` on purpose, since a changed term re-translates the strings that use it, not
+    the whole locale, and an older client simply ignores it."""
     doc = {"version": LOCK_VERSION, "settings": settings, "keys": dict(keys)}
     if langs:
         doc["langs"] = {lang: dict(m) for lang, m in langs.items() if m}
+    if glossary:
+        doc["glossary"] = {lang: dict(m) for lang, m in glossary.items() if m}
     return doc
 
 

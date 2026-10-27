@@ -261,6 +261,8 @@ account and no network. **RED** problems fail the build; **YELLOW** are advisory
   CLDR rules require.
 - **Glossary term dropped** (opt-in) — a term listed under `keep` in kaeris.json (or passed as
   `kaeris check --glossary "KAERIS,GitHub"`) isn't carried into the translation.
+- **Glossary term translated another way** (opt-in) — a term of `kaeris-glossary.json` is in the
+  source, and the translation does not use the word agreed for that language (see below).
 
 **YELLOW — advisory warnings (`--strict` to fail):**
 
@@ -276,6 +278,55 @@ usage (source not found, no languages given, etc.) — drop it straight into CI:
 ```yaml
 - run: kaeris check --source locales/en.json --langs es,fr,de,ja --out locales
 ```
+
+### Glossary: one word per term, per language
+
+`--keep` says "never translate this". When a term must be translated, but always the same way,
+put it in `kaeris-glossary.json` next to `kaeris.json`:
+
+```json
+{"terms": [
+  {"term": "workspace", "pos": "noun", "note": "the shared project area, not a desk",
+   "translations": {"de": "Arbeitsbereich", "fr": "espace de travail", "ru": "рабочее пространство"}},
+  {"term": "KAERIS", "keep": true}
+]}
+```
+
+`kaeris translate` sends the terms with the strings, and `kaeris check` reads every translation
+against them:
+
+```text
+$ kaeris check --source en.json --langs de,fr,ru
+→ Glossary: 1 term(s), 1 kept as is
+✓ de: complete & placeholder-safe
+✗ fr: 1 translation fault(s):
+    open: glossary: "workspace" should be "espace de travail"
+! ru: 1 warning(s):
+    leave: glossary: "workspace" should be "рабочее пространство" — not found, not even as an inflected form; check this line
+✗ 1 translation fault
+```
+
+Here `en.json` is `{"open": "Open the workspace", "leave": "Leave the workspace"}`; German
+said «Arbeitsbereich» both times, French said «bureau» once, Russian said «рабочей области».
+
+- In the source a term counts as a whole word: `Pro` is not found in "product". Set
+  `"case_sensitive": true` when the case matters. English plurals count ("workspaces").
+- In the translation an inflected form passes: every word of the agreed translation is matched
+  by its stem, so «Name des Arbeitsbereichs» and «в рабочем пространстве» are fine.
+- A miss is an error in languages whose words keep their shape (French, Spanish, Italian,
+  Portuguese, Japanese, Chinese…). In languages whose words change shape or join into compounds
+  (Russian, Ukrainian, Polish, Finnish, German, Arabic…) it is a warning: there "not found" can
+  still be correct grammar, so a person decides. `--strict` fails on warnings too.
+- A list gives accepted variants: `"fr": ["se connecter", "connexion"]`; the first is the one
+  the model is asked for.
+- `keep: true` entries work like `--keep`.
+- With `--only-new`, changing a term re-translates only the strings that use it and do not
+  already say it the new way; `kaeris.lock` remembers what each term asked for. Strings from the
+  project memory that say it the old way are not reused.
+
+The file is found as `--glossary-file PATH`, then `"glossary_file"` in `kaeris.json`, then
+`./kaeris-glossary.json`. A file that cannot be read or has a broken entry stops the run with
+exit code 2 and says which entry.
 
 ### Every format `translate` writes
 
@@ -395,7 +446,9 @@ settings that produced it**: your tone, your glossary, your app context, and the
 the whole locale is re-translated, so it never ends up a mix of two tones or two models. Every
 tier runs the same model (Gemini 2.5 Flash-Lite), so a plan change alone never forces a re-translation —
 the lock records the model anyway, so the day we change it, you find out from a full re-run
-rather than from a locale quietly built by two models. It's what lets
+rather than from a locale quietly built by two models. The terms of `kaeris-glossary.json` are
+the exception: a changed term re-translates only the strings that use it (see "Glossary" above).
+It's what lets
 `--only-new` notice an edited key even though it's still present in the target; without it, a
 plain "is this key missing?" check would skip the key and leave the old (now wrong) translation
 in place. Commit `kaeris.lock` alongside your source file so the check works across machines/CI.
@@ -416,6 +469,7 @@ Anything not passed falls back to `kaeris.json`, then to the built-in default.
 | `--lock PATH` | where `kaeris.lock` lives (default: next to the source) |
 | `--assume-current` | first incremental run on a project already translated: trust the existing target strings instead of re-translating everything |
 | `--keep "A,B"` / `--glossary "A,B"` | terms to carry over verbatim (two names for one flag) |
+| `--glossary-file PATH` | terms and how each language must say them (default `./kaeris-glossary.json`) |
 | `--context "…"` | one line about the app, so ambiguous words get the right sense |
 | `--tone neutral\|formal\|casual` | tone of voice |
 | `--model openai/gpt-4.1` | Lifetime (BYOK): the OpenRouter model to translate with; `"models": {"de": "…"}` in `kaeris.json` sets one per language. Changing it re-translates under `--only-new`; other plans get an error naming the plan |
@@ -443,6 +497,7 @@ Anything not passed falls back to `kaeris.json`, then to the built-in default.
 | `--json` | machine-readable result |
 | `--ci` | same exit-code contract, a stable entry point for pipelines |
 | `--glossary "A,B"` | fail a target that dropped one of these terms |
+| `--glossary-file PATH` | fail a target that translated a term of this file another way (default `./kaeris-glossary.json`) |
 | `--sarif FILE` | write a SARIF 2.1.0 report (needs kaeris ≥ 0.2.12) |
 
 **`kaeris init`** — `--preset NAME`, `--force` (overwrite an existing `kaeris.json`).
