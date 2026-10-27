@@ -322,7 +322,7 @@ class KaerisClient:
 
     def _multipart(self, filename, content, languages, glossary=None,
                    verify=False, back_lang="en", tone="", icu=False, reuse=None,
-                   app_context="", translate_service_keys=False):
+                   app_context="", translate_service_keys=False, model="", models=None):
         boundary = "----kaeris" + uuid.uuid4().hex
         crlf = b"\r\n"
         parts = []
@@ -372,6 +372,16 @@ class KaerisClient:
             parts.append(b'Content-Disposition: form-data; name="app_context"')
             parts.append(b"")
             parts.append(app_context.encode())
+        if model:
+            parts.append(b"--" + boundary.encode())
+            parts.append(b'Content-Disposition: form-data; name="model"')
+            parts.append(b"")
+            parts.append(model.encode())
+        if models:
+            parts.append(b"--" + boundary.encode())
+            parts.append(b'Content-Disposition: form-data; name="models"')
+            parts.append(b"")
+            parts.append(json.dumps(models, ensure_ascii=False).encode())
         if reuse:
             parts.append(b"--" + boundary.encode())
             parts.append(b'Content-Disposition: form-data; name="reuse"')
@@ -384,8 +394,12 @@ class KaerisClient:
 
     def submit(self, filename, content, languages, glossary=None,
                verify=False, back_lang="en", tone="", icu=False, reuse=None,
-               app_context="", translate_service_keys=False):
+               app_context="", translate_service_keys=False, model="", models=None):
         """POST a file for translation; returns job_id.
+
+        model: an OpenRouter model id for the whole run; models: {lang: id} for single
+             languages. Lifetime (BYOK) only — the server refuses it on other plans and checks
+             every id against its allowlist.
 
         translate_service_keys: the server leaves keys starting with `_` (`_status`,
              `meta._note`) untranslated in JSON/YAML/ARB; True translates them too.
@@ -405,7 +419,8 @@ class KaerisClient:
                                       verify=verify, back_lang=back_lang,
                                       tone=tone, icu=icu, reuse=reuse,
                                       app_context=app_context,
-                                      translate_service_keys=translate_service_keys)
+                                      translate_service_keys=translate_service_keys,
+                                      model=model, models=models)
         waited = 0
         for attempt in range(SUBMIT_RETRIES + 1):
             req = urllib.request.Request(

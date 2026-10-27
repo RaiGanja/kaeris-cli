@@ -890,6 +890,38 @@ RESTART_RETRIES = 2
 RESTART_PAUSE = 20
 
 
+def _model_for(args, lang):
+    """The model asked for `lang`: its own entry in "models", else --model / "model", else ""
+    (the server's default)."""
+    own = fm.find_lang(getattr(args, "models", None) or {}, lang)
+    return own or getattr(args, "model", "") or ""
+
+
+def _model_opts(args, langs):
+    """`model`/`models` for one job, sent only when chosen so an older server or a client
+    stub sees the call it knows. A one-language job carries that language's model."""
+    if len(langs) == 1:
+        m = _model_for(args, langs[0])
+        return {"model": m} if m else {}
+    per = {l: m for l in langs if (m := fm.find_lang(getattr(args, "models", None) or {}, l))}
+    opts = {"model": getattr(args, "model", "")} if getattr(args, "model", "") else {}
+    if per:
+        opts["models"] = per
+    return opts
+
+
+def _model_signature(args, client):
+    """The model part of the lock and TM settings. Without a choice it is the server's model
+    for this key (as before); with one it names the chosen model and every per-language
+    entry, so choosing another model re-translates the locale under --only-new."""
+    per = getattr(args, "models", None) or {}
+    chosen = getattr(args, "model", "") or ""
+    if not chosen and not per:
+        return _current_model(client)
+    base = chosen or _current_model(client)
+    return base + "".join(f";{k}={per[k]}" for k in sorted(per))
+
+
 def _run_job(client, fname, content, langs, args, reuse=None, label=""):
     """Submit one job, wait for it, fetch the archive: the part that only waits on the server,
     so it can run beside other jobs. Returns (job, status, members)."""
@@ -898,7 +930,7 @@ def _run_job(client, fname, content, langs, args, reuse=None, label=""):
                             verify=args.verify, back_lang=args.back_lang,
                             tone=_tone(args), icu=args.icu,
                             app_context=_app_context(args),
-                            **_service_keys_opt(args))
+                            **_service_keys_opt(args), **_model_opts(args, langs))
         # The server accepted the job but may say it left something out: a silent drop is
         # a lost language. Said once per job, whatever the answer turns out to be.
         for w in (getattr(client, "job_warnings", lambda j: [])(job) if attempt == 0 else []):
@@ -962,6 +994,19 @@ def cmd_translate(args):
     # Merge remaining options — precedence: explicit CLI flag > kaeris.json > built-in default.
     args.keep = args.keep if args.keep else ",".join(config.get("keep") or config.get("glossary") or [])
     args.context = args.context if args.context else (config.get("context") or "")
+    # The model (Lifetime/BYOK): --model > "model" in kaeris.json; "models" names one per
+    # language and beats both for that language. The server checks plan and ids.
+    cfg_model, cfg_models = config.get("model") or "", config.get("models") or {}
+    if not isinstance(cfg_model, str):
+        err('"model" in kaeris.json must be an OpenRouter model id, e.g. "openai/gpt-4.1"')
+        return 2
+    if not isinstance(cfg_models, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in cfg_models.items()):
+        err('"models" in kaeris.json must be an object of language -> model id, '
+            'e.g. {"de": "openai/gpt-4.1"}')
+        return 2
+    args.model = (args.model or cfg_model).strip()
+    args.models = {k.strip(): v.strip() for k, v in cfg_models.items() if k.strip() and v.strip()}
     if args.tone is None:
         cfg_tone = config.get("tone")
         args.tone = cfg_tone if cfg_tone in ("neutral", "formal", "casual") else "neutral"
@@ -1177,7 +1222,7 @@ def _tm_signature(args, client):
     uses — a string translated formally, or under a different glossary or model, is a
     different answer and must not be served from memory."""
     return inc.settings_signature(tone=_tone(args), icu=args.icu, keep=_glossary(args),
-                                  model=_current_model(client), app_context=_app_context(args))
+                                  model=_model_signature(args, client), app_context=_app_context(args))
 
 
 def _tm_open(args, path):
@@ -1501,13 +1546,13 @@ def _translate_incremental(client, path, out_dir, langs, args):
     # unchanged source string would still hash-match and be kept — leaving a locale that mixes
     # old and new settings. Detect that and re-translate every key so the output stays consistent.
     cur_settings = inc.settings_signature(_tone(args), args.icu, _glossary(args),
-                                          _current_model(client), _app_context(args))
+                                          _model_signature(args, client), _app_context(args))
     locked_settings = inc.lock_settings(lock_raw)
     settings_changed = inc.settings_changed(locked_settings, cur_settings)
     if settings_changed:
         changed_model = (locked_settings or {}).get("model", "") != cur_settings["model"] \
             and (locked_settings or {}).get("model", "")
-        why = ("the model changed (tier switch)" if changed_model
+        why = ("the model changed" if changed_model
                else "tone/ICU/glossary/context changed")
         info(f"Translation settings changed since the lock — {why}. Re-translating every key "
              "so the whole locale stays consistent")
@@ -1806,6 +1851,11 @@ def build_parser():
                    help="One line about what the app is, e.g. --context 'a bank app for teenagers'. "
                         "The model uses it to pick the right sense of ambiguous strings "
                         f"(max {APP_CONTEXT_LIMIT} chars; default: 'context' in kaeris.json)")
+    t.add_argument("--model", default=None, metavar="ID",
+                   help="Lifetime (BYOK): the OpenRouter model to translate with, e.g. "
+                        "--model openai/gpt-4.1 (default: 'model' in kaeris.json; 'models' "
+                        "sets one per language, e.g. {\"de\": \"anthropic/claude-sonnet-4.5\"}). "
+                        "On other plans the server refuses it and says why")
     t.add_argument("--verify", action="store_true",
                    help="Back-translation and meaning check for your review: back-translate "
                         "into --back-lang, flag lines whose meaning may have changed, and "

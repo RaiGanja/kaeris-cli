@@ -418,6 +418,7 @@ Anything not passed falls back to `kaeris.json`, then to the built-in default.
 | `--keep "A,B"` / `--glossary "A,B"` | terms to carry over verbatim (two names for one flag) |
 | `--context "…"` | one line about the app, so ambiguous words get the right sense |
 | `--tone neutral\|formal\|casual` | tone of voice |
+| `--model openai/gpt-4.1` | Lifetime (BYOK): the OpenRouter model to translate with; `"models": {"de": "…"}` in `kaeris.json` sets one per language. Changing it re-translates under `--only-new`; other plans get an error naming the plan |
 | `--icu` / `--no-icu` | hint that strings use ICU MessageFormat, so plurals/select survive |
 | `--source-lang en` | base language code; also detects `locales/<lang>/<namespace>.json` layouts |
 | `--verify` | back-translation and meaning check for your review; prints `⚠ meaning:` lines and writes `verify.json` |
