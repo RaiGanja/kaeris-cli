@@ -335,6 +335,7 @@ def load_json(path):
 
 
 def dump_json(obj, path):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False, indent=2)
-        f.write("\n")
+    """The --only-new merge of a JSON/ARB locale file: atomic like every other write, and in the
+    file's own line endings (LF when new) — plain text mode wrote CRLF on Windows."""
+    from .cli import write_atomic
+    write_atomic(path, json.dumps(obj, ensure_ascii=False, indent=2) + "\n")

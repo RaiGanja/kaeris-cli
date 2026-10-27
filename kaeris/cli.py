@@ -1643,6 +1643,19 @@ def _find_json_member(members, lang):
 
 
 
+def existing_eol(path):
+    """"\\r\\n" when the file at `path` already ends its lines that way, else "\\n" (also for a
+    file that does not exist yet). Decided like the server's _source_shape: CRLF wins when at
+    least half the line breaks are CRLF."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(1 << 16)
+    except OSError:
+        return "\n"
+    crlf = head.count(b"\r\n")
+    return "\r\n" if crlf and crlf * 2 >= head.count(b"\n") else "\n"
+
+
 def write_atomic(path, data, *, binary=False):
     """Write a file so an interrupted run cannot destroy what was already there.
 
@@ -1653,12 +1666,17 @@ def write_atomic(path, data, *, binary=False):
 
     Writing beside the target and renaming means a reader (and the next run) sees either the
     old file or the new one. The rename is atomic on POSIX and on Windows via os.replace.
+
+    Text is written with the line endings the file already has, and LF for a new file. Text
+    mode without `newline` turned every "\\n" into os.linesep, so on Windows the TM, the lock,
+    kaeris.json and the receipt came out CRLF — a whole-file diff on the next run (live run,
+    27.10.2026). Binary data is written byte for byte.
     """
     path = str(path)
     directory = os.path.dirname(os.path.abspath(path))
     tmp = os.path.join(directory, f".{os.path.basename(path)}.kaeris-tmp")
     mode = "wb" if binary else "w"
-    kwargs = {} if binary else {"encoding": "utf-8"}
+    kwargs = {} if binary else {"encoding": "utf-8", "newline": existing_eol(path)}
     try:
         with open(tmp, mode, **kwargs) as f:
             f.write(data)
