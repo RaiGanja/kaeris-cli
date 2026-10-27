@@ -1,0 +1,24 @@
+name: uptime
+
+# External check of the public service: fails (and GitHub e-mails the repo owner) when
+# kaeris.dev stops answering. Runs outside our own server and outside Cloudflare's dashboard.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ready:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: /api/health/ready answers 200 with ready=true
+        run: |
+          for attempt in 1 2 3; do
+            body=$(curl -fsS --max-time 15 https://kaeris.dev/api/health/ready) && break
+            sleep 20
+          done
+          echo "$body"
+          echo "$body" | grep -q '"ready": *true'
