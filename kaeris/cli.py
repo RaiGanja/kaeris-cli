@@ -196,10 +196,11 @@ def _source_text(path):
 
 
 def _say_absent_glossary():
-    # A whole word in its own case, the way the drop check looks for it: "Pro" inside
-    # "product" is not the term, and the term was never checked there (R02).
+    # A whole word, in any case: "Pro" inside "product" is not the term, and the term was
+    # never checked there (R02).
     def _in(term, text):
-        return re.search(r"(?<![A-Za-z0-9_])" + re.escape(term) + r"(?![A-Za-z0-9_])", text)
+        return re.search(r"(?<![A-Za-z0-9_])" + re.escape(term) + r"(?![A-Za-z0-9_])", text,
+                         re.IGNORECASE)
     sources = _GLOSSARY_SEEN["sources"]
     absent = sorted(t for t in _GLOSSARY_SEEN["absent"] - _GLOSSARY_SEEN["found"]
                     if not any(_in(t, src) for src in sources))
