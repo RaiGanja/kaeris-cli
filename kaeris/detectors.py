@@ -1226,10 +1226,12 @@ def _glossary_case_drift(original: str, translated: str,
         t = (term or "").strip()
         if not t:
             continue
-        forms = set(re.findall(re.escape(t), original, re.IGNORECASE))
+        # A whole word, like _lost_glossary: "PRODUCT" holds no "Pro" whose case could drift.
+        word = r"(?<![A-Za-z0-9_])" + re.escape(t) + r"(?![A-Za-z0-9_])"
+        forms = set(re.findall(word, original, re.IGNORECASE))
         if not forms:
             continue
-        seen = re.search(re.escape(t), translated, re.IGNORECASE)
+        seen = re.search(word, translated, re.IGNORECASE)
         if not seen:
             continue                     # gone entirely — that is _lost_glossary's error
         accepted = set()

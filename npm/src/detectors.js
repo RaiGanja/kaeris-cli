@@ -675,9 +675,11 @@ function glossaryCaseDrift(original, translated, glossary) {
   for (const term of glossary) {
     const t = strip(term || "");
     if (!t) continue;
-    const forms = new Set(allMatches(new RegExp(escapeRe(t), "giu"), original));
+    // A whole word, like lostGlossary: "PRODUCT" holds no "Pro" whose case could drift.
+    const word = "(?<![A-Za-z0-9_])" + escapeRe(t) + "(?![A-Za-z0-9_])";
+    const forms = new Set(allMatches(new RegExp(word, "giu"), original));
     if (!forms.size) continue;
-    const seen = new RegExp(escapeRe(t), "iu").exec(translated);
+    const seen = new RegExp(word, "iu").exec(translated);
     if (!seen) continue;
     const accepted = new Set();
     for (const f of forms) {
