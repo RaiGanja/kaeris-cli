@@ -157,5 +157,6 @@ def write(path: str, doc: dict) -> None:
     d = os.path.dirname(os.path.abspath(path))
     if d:
         os.makedirs(d, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    # newline="\n": a report committed or uploaded from Windows must not differ from Linux's.
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
         json.dump(doc, f, ensure_ascii=False, indent=1)

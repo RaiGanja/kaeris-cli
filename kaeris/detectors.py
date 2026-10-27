@@ -1226,10 +1226,12 @@ def _glossary_case_drift(original: str, translated: str,
         t = (term or "").strip()
         if not t:
             continue
-        forms = set(re.findall(re.escape(t), original, re.IGNORECASE))
+        # A whole word, like _lost_glossary: "PRODUCT" holds no "Pro" whose case could drift.
+        word = r"(?<![A-Za-z0-9_])" + re.escape(t) + r"(?![A-Za-z0-9_])"
+        forms = set(re.findall(word, original, re.IGNORECASE))
         if not forms:
             continue
-        seen = re.search(re.escape(t), translated, re.IGNORECASE)
+        seen = re.search(word, translated, re.IGNORECASE)
         if not seen:
             continue                     # gone entirely — that is _lost_glossary's error
         accepted = set()
@@ -1319,7 +1321,7 @@ def _answered_instead_of_translating(original: str, translated: str) -> bool:
 # "break": the app itself can fail (placeholders, ICU, tags, line breaks, escapes).
 # "meaning": the app works, the words may be wrong (numbers, currency, untranslated, terms).
 _MEANING_WARNING_RE = re.compile(
-    r"^(?:number |currency |may be untranslated|brand term |glossary |invented link|"
+    r"^(?:number |currency |may be untranslated|brand term |glossary[ :]|invented link|"
     r"not a translation|source string reads like|truncated|translation adds a text-direction)"
     r"|translated on its own|every string replaced by", re.I)
 

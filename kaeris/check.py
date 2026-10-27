@@ -15,6 +15,7 @@ import re
 
 from .incremental import flatten_all
 from . import detectors as det
+from . import glossary as gl
 from .formats import lone_count_to_hash
 
 # Percent/dollar-style placeholders (order matters: positional and %@ must be
@@ -163,7 +164,7 @@ def diff_locale(source_flat, target_flat, pair=True, optional=()):
     return missing, extra, issues
 
 
-def check_locales(source_obj, langs, load_target, glossary=None):
+def check_locales(source_obj, langs, load_target, glossary=None, terms=None):
     """Run the check across every target language.
 
     `load_target(lang)` -> the parsed locale for that language (a JSON object, or the flat
@@ -179,6 +180,9 @@ def check_locales(source_obj, langs, load_target, glossary=None):
        "missing_files": [lang, ...],
        "faults": [{"lang", "key", "severity": "error", "msg"}],
        "warnings": [{"lang", "key"?, "severity": "warn", "msg"}]}
+    `terms` are the entries of kaeris-glossary.json (kaeris/glossary.py): a term of the source
+    must come out as the agreed word of each language.
+
     `ok` is True only if there are no missing keys, no placeholder issues and
     no RED detector faults (extra/stale keys, empty translations and YELLOW warnings never affect
     `ok` — that's what --strict is for).
@@ -230,7 +234,8 @@ def check_locales(source_obj, langs, load_target, glossary=None):
                 result["warnings"].append({"lang": lang, "key": key, "severity": "warn",
                                            "msg": "empty translation — the source has text"})
                 continue
-            for f in det.string_faults(src_val, tgt_val, lang, glossary):
+            for f in det.string_faults(src_val, tgt_val, lang, glossary) + \
+                    gl.faults(src_val, tgt_val, lang, terms):
                 rec = {"lang": lang, "key": key, "msg": f["msg"]}
                 if f["severity"] == det.ERROR:
                     result["faults"].append({**rec, "severity": "error"})

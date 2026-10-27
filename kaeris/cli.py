@@ -21,6 +21,7 @@ from . import tm as tmem
 from . import detectors as det
 from . import digits as dg
 from . import fixes as fx
+from . import glossary as gl
 
 CONFIG_FILENAME = "kaeris.json"
 
@@ -115,6 +116,21 @@ _PLAN_NAMES = {"premium": "Pro", "teamapi": "Team/API", "byok": "Lifetime", "tea
                "free": "Free key", "anonymous": "Free"}
 
 
+def _fallback_line(rec):
+    """Why the backup model answered instead of the primary, or None when it did not.
+
+    The server sends `fallback` (model, batches, languages, first reason) since the backup
+    started answering 1-4 runs in 10 with nothing said about it. A run whose wording changes
+    from one day to the next deserves to know which model wrote it and why."""
+    fb = rec.get("fallback") or {}
+    if not fb.get("model"):
+        return None
+    where = ", ".join(fb.get("languages") or []) or "?"
+    n = fb.get("batches") or 1
+    return (f"backup model {fb['model']} answered instead of {rec.get('model', '?')} "
+            f"({n} batch{'es' if n != 1 else ''}, {where}): {fb.get('reason') or 'reason not given'}")
+
+
 def _fmt_receipt(rec):
     """Two lines a human reads, plus the things worth interrupting them for.
 
@@ -131,6 +147,8 @@ def _fmt_receipt(rec):
     # The model that did the work, not the one configured: with the primary down the fallback
     # translated and this line still named the primary (R29).
     served = [m for m in (rec.get("models_served") or []) if m]
+    backup = (rec.get("fallback") or {}).get("model")
+    served = [f"{m} (backup)" if backup and m == backup else m for m in served]
     lines.append(
         f"Run: {' + '.join(served) if served else rec.get('model', '?')} · "
         f"{_PLAN_NAMES.get(rec.get('plan'), rec.get('plan')) or 'plan hidden'} · "
@@ -178,9 +196,14 @@ def _source_text(path):
 
 
 def _say_absent_glossary():
-    sources = [t.lower() for t in _GLOSSARY_SEEN["sources"]]
+    # A whole word, in any case: "Pro" inside "product" is not the term, and the term was
+    # never checked there (R02).
+    def _in(term, text):
+        return re.search(r"(?<![A-Za-z0-9_])" + re.escape(term) + r"(?![A-Za-z0-9_])", text,
+                         re.IGNORECASE)
+    sources = _GLOSSARY_SEEN["sources"]
     absent = sorted(t for t in _GLOSSARY_SEEN["absent"] - _GLOSSARY_SEEN["found"]
-                    if not any(t.lower() in src for src in sources))
+                    if not any(_in(t, src) for src in sources))
     if absent:
         warn(f"{len(absent)} glossary term(s) never appear in your source, so nothing kept "
              f"them: {', '.join(absent[:5])}")
@@ -196,6 +219,9 @@ def _show_receipt(client, job):
     lines, failed = _fmt_receipt(rec)
     info(lines[0])
     print(lines[1], file=sys.stderr)
+    backup = _fallback_line(rec)
+    if backup:
+        warn(backup)
     # A glossary term that was never in the file was never going to be honoured. Collected
     # here and said once at the end of the run, about the whole run (_say_absent_glossary).
     for g in rec.get("glossary") or []:
@@ -737,7 +763,19 @@ def cmd_check(args):
     else:
         glossary = config.get("keep") or config.get("glossary") or None
     try:
-        result = chk.check_locales(source_obj, langs, load_target, glossary)
+        term_file = gl.find(getattr(args, "glossary_file", None), config)
+    except gl.GlossaryError as e:
+        err(str(e))
+        return 2
+    if term_file is not None:
+        if term_file.keep:
+            glossary = list(glossary or []) + [t for t in term_file.keep
+                                               if t not in (glossary or [])]
+        if not args.json:
+            info(f"Glossary: {len(term_file.entries)} term(s), {len(term_file.keep)} kept as is")
+    try:
+        result = chk.check_locales(source_obj, langs, load_target, glossary,
+                                   term_file.entries if term_file is not None else None)
     except _BadTarget as e:
         err(str(e))
         return 2
@@ -870,6 +908,53 @@ RESTART_RETRIES = 2
 RESTART_PAUSE = 20
 
 
+def _model_for(args, lang):
+    """The model asked for `lang`: its own entry in "models", else --model / "model", else ""
+    (the server's default)."""
+    own = fm.find_lang(getattr(args, "models", None) or {}, lang)
+    return own or getattr(args, "model", "") or ""
+
+
+def _model_opts(args, langs):
+    """`model`/`models` for one job, sent only when chosen so an older server or a client
+    stub sees the call it knows. A one-language job carries that language's model."""
+    if len(langs) == 1:
+        m = _model_for(args, langs[0])
+        return {"model": m} if m else {}
+    per = {l: m for l in langs if (m := fm.find_lang(getattr(args, "models", None) or {}, l))}
+    opts = {"model": getattr(args, "model", "")} if getattr(args, "model", "") else {}
+    if per:
+        opts["models"] = per
+    return opts
+
+
+def _model_signature(args, client):
+    """The model part of the lock and TM settings. Without a choice it is the server's model
+    for this key (as before); with one it names the chosen model and every per-language
+    entry, so choosing another model re-translates the locale under --only-new."""
+    per = getattr(args, "models", None) or {}
+    chosen = getattr(args, "model", "") or ""
+    if not chosen and not per:
+        return _current_model(client)
+    base = chosen or _current_model(client)
+    return base + "".join(f";{k}={per[k]}" for k in sorted(per))
+
+
+def _terms_opt(args, langs):
+    """`terms` for one job: the glossary's entries, each with only this job's languages, under
+    the codes the job uses (a "pt" entry serves pt-BR). Nothing at all without a glossary file,
+    so an older server and the test stubs see the call they know."""
+    g = getattr(args, "term_glossary", None)
+    if not g:
+        return {}
+    out = []
+    for e in g.entries:
+        tr = {l: e.renderings(l) for l in langs if e.renderings(l)}
+        if tr:
+            out.append({**e.for_api(), "translations": tr})
+    return {"terms": out} if out else {}
+
+
 def _run_job(client, fname, content, langs, args, reuse=None, label=""):
     """Submit one job, wait for it, fetch the archive: the part that only waits on the server,
     so it can run beside other jobs. Returns (job, status, members)."""
@@ -878,7 +963,8 @@ def _run_job(client, fname, content, langs, args, reuse=None, label=""):
                             verify=args.verify, back_lang=args.back_lang,
                             tone=_tone(args), icu=args.icu,
                             app_context=_app_context(args),
-                            **_service_keys_opt(args))
+                            **_service_keys_opt(args), **_model_opts(args, langs),
+                            **_terms_opt(args, langs))
         # The server accepted the job but may say it left something out: a silent drop is
         # a lost language. Said once per job, whatever the answer turns out to be.
         for w in (getattr(client, "job_warnings", lambda j: [])(job) if attempt == 0 else []):
@@ -941,7 +1027,33 @@ def cmd_translate(args):
 
     # Merge remaining options — precedence: explicit CLI flag > kaeris.json > built-in default.
     args.keep = args.keep if args.keep else ",".join(config.get("keep") or config.get("glossary") or [])
+    # kaeris-glossary.json: its "keep" terms join --keep, its terms travel with every job.
+    try:
+        args.term_glossary = gl.find(getattr(args, "glossary_file", None), config)
+    except gl.GlossaryError as e:
+        err(str(e))
+        return 2
+    if args.term_glossary is not None:
+        kept = _glossary(args)
+        extra = [t for t in args.term_glossary.keep if t not in kept]
+        if extra:
+            args.keep = ",".join(kept + extra)
+        info(f"Glossary: {len(args.term_glossary.entries)} term(s), "
+             f"{len(args.term_glossary.keep)} kept as is")
     args.context = args.context if args.context else (config.get("context") or "")
+    # The model (Lifetime/BYOK): --model > "model" in kaeris.json; "models" names one per
+    # language and beats both for that language. The server checks plan and ids.
+    cfg_model, cfg_models = config.get("model") or "", config.get("models") or {}
+    if not isinstance(cfg_model, str):
+        err('"model" in kaeris.json must be an OpenRouter model id, e.g. "openai/gpt-4.1"')
+        return 2
+    if not isinstance(cfg_models, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in cfg_models.items()):
+        err('"models" in kaeris.json must be an object of language -> model id, '
+            'e.g. {"de": "openai/gpt-4.1"}')
+        return 2
+    args.model = (args.model or cfg_model).strip()
+    args.models = {k.strip(): v.strip() for k, v in cfg_models.items() if k.strip() and v.strip()}
     if args.tone is None:
         cfg_tone = config.get("tone")
         args.tone = cfg_tone if cfg_tone in ("neutral", "formal", "casual") else "neutral"
@@ -1157,7 +1269,7 @@ def _tm_signature(args, client):
     uses — a string translated formally, or under a different glossary or model, is a
     different answer and must not be served from memory."""
     return inc.settings_signature(tone=_tone(args), icu=args.icu, keep=_glossary(args),
-                                  model=_current_model(client), app_context=_app_context(args))
+                                  model=_model_signature(args, client), app_context=_app_context(args))
 
 
 def _tm_open(args, path):
@@ -1175,12 +1287,18 @@ def _tm_open(args, path):
     return tmem.load(tm_path), tm_path
 
 
-def _tm_reuse(memory, source_flat, langs, sig):
+def _term_entries(args):
+    g = getattr(args, "term_glossary", None)
+    return g.entries if g else []
+
+
+def _tm_reuse(memory, source_flat, langs, sig, entries=None):
     """What the API can skip entirely. Handed over as its `reuse` map — strings it does not
-    translate are strings it does not charge for."""
+    translate are strings it does not charge for. A remembered string that says a glossary term
+    the old way is not served: the memory is keyed by text, so it would undo the glossary."""
     if memory is None:
         return None, 0
-    hits = tmem.lookup(memory, source_flat, langs, sig)
+    hits = gl.filter_reuse(tmem.lookup(memory, source_flat, langs, sig), source_flat, entries)
     n = sum(len(v) for v in hits.values())
     return (hits or None), n
 
@@ -1248,7 +1366,7 @@ def _start_one(client, pool, path, langs, args, label=""):
                 (".json", ".arb")) else {}
         except (OSError, ValueError):
             source_flat = {}
-    reuse, n_reused = _tm_reuse(memory, source_flat, langs, sig)
+    reuse, n_reused = _tm_reuse(memory, source_flat, langs, sig, _term_entries(args))
     if n_reused:
         info(f"Project memory: {n_reused} string/language pair(s) reused, not re-translated")
 
@@ -1481,16 +1599,22 @@ def _translate_incremental(client, path, out_dir, langs, args):
     # unchanged source string would still hash-match and be kept — leaving a locale that mixes
     # old and new settings. Detect that and re-translate every key so the output stays consistent.
     cur_settings = inc.settings_signature(_tone(args), args.icu, _glossary(args),
-                                          _current_model(client), _app_context(args))
+                                          _model_signature(args, client), _app_context(args))
     locked_settings = inc.lock_settings(lock_raw)
     settings_changed = inc.settings_changed(locked_settings, cur_settings)
     if settings_changed:
         changed_model = (locked_settings or {}).get("model", "") != cur_settings["model"] \
             and (locked_settings or {}).get("model", "")
-        why = ("the model changed (tier switch)" if changed_model
+        why = ("the model changed" if changed_model
                else "tone/ICU/glossary/context changed")
         info(f"Translation settings changed since the lock — {why}. Re-translating every key "
              "so the whole locale stays consistent")
+    # The glossary is not a setting of the whole locale: a changed term re-translates only the
+    # strings that use it and do not already say it the new way (glossary.stale_keys). The lock
+    # remembers, per language, what each term asked for when it was last applied.
+    entries = _term_entries(args)
+    locked_terms = lock_raw.get("glossary") if isinstance(lock_raw.get("glossary"), dict) else {}
+    new_terms = {l: dict(v) for l, v in locked_terms.items() if isinstance(v, dict)}
     # Source keys NOT fully propagated to every language after this run — a key
     # is "broken" if any language it was due in failed to merge. Broken keys are
     # left stale-locked so the NEXT run retries the language(s) that failed.
@@ -1517,6 +1641,18 @@ def _translate_incremental(client, path, out_dir, langs, args):
             unverified_by_lang[lang] = inc.unverified_keys(source_flat, existing_flat, lang_baseline)
         todo = (dict(source_flat) if settings_changed
                 else inc.changed_or_missing_keys(source_flat, existing_flat, lang_baseline))
+        term_fps = {}
+        if entries or locked_terms.get(lang):
+            term_fps = {e.term.casefold(): e.fingerprint(lang) for e in entries
+                        if e.renderings(lang)}
+            changed_terms = gl.changed_terms(locked_terms.get(lang), term_fps)
+            stale = {k for k in gl.stale_keys(source_flat, existing_flat, lang, entries,
+                                              changed_terms) if k not in todo}
+            if stale and not settings_changed:
+                info(f"{lang}: {len(stale)} key(s) use a glossary term that changed and do not "
+                     f"say it the new way yet — re-translating them")
+                todo.update({k: source_flat[k] for k in stale})
+        new_terms[lang] = term_fps
         if not todo:
             ok(f"{lang}: up to date ({len(existing_flat)} keys)")
             continue
@@ -1532,7 +1668,7 @@ def _translate_incremental(client, path, out_dir, langs, args):
         # Of the keys the lock says still need work, some are renames and moves of text we
         # have already translated. Those are exactly what the lock cannot see and the project
         # memory can — and the API does not charge for what it is told it already knows.
-        reuse, n_reused = _tm_reuse(memory, todo, [lang], sig)
+        reuse, n_reused = _tm_reuse(memory, todo, [lang], sig, entries)
         if n_reused:
             info(f"{lang}: {n_reused} of them come from the project memory, not the model")
         future = pool.submit(_run_job, client, os.path.basename(path), content, [lang], args,
@@ -1618,7 +1754,15 @@ def _translate_incremental(client, path, out_dir, langs, args):
     # Record the new settings only if they were fully applied everywhere. If a settings change
     # left some language broken, keep the OLD settings so the next run re-forces the stragglers.
     final_settings = locked_settings if (settings_changed and broken) else cur_settings
-    inc.dump_lock(inc.build_lock(new_keys, final_settings, lang_locks), lock_path)
+    # A language whose job failed keeps the terms it had: the next run tries them again.
+    for lang in broken_by_lang:
+        if lang in locked_terms:
+            new_terms[lang] = locked_terms[lang]
+        else:
+            new_terms.pop(lang, None)
+    inc.dump_lock(inc.build_lock(new_keys, final_settings, lang_locks,
+                                 glossary={l: m for l, m in new_terms.items() if m}),
+                  lock_path)
 
     if unverified_all:
         langs_hit = sorted(l for l, s_ in unverified_by_lang.items() if s_)
@@ -1643,6 +1787,19 @@ def _find_json_member(members, lang):
 
 
 
+def existing_eol(path):
+    """"\\r\\n" when the file at `path` already ends its lines that way, else "\\n" (also for a
+    file that does not exist yet). Decided like the server's _source_shape: CRLF wins when at
+    least half the line breaks are CRLF."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(1 << 16)
+    except OSError:
+        return "\n"
+    crlf = head.count(b"\r\n")
+    return "\r\n" if crlf and crlf * 2 >= head.count(b"\n") else "\n"
+
+
 def write_atomic(path, data, *, binary=False):
     """Write a file so an interrupted run cannot destroy what was already there.
 
@@ -1653,12 +1810,17 @@ def write_atomic(path, data, *, binary=False):
 
     Writing beside the target and renaming means a reader (and the next run) sees either the
     old file or the new one. The rename is atomic on POSIX and on Windows via os.replace.
+
+    Text is written with the line endings the file already has, and LF for a new file. Text
+    mode without `newline` turned every "\\n" into os.linesep, so on Windows the TM, the lock,
+    kaeris.json and the receipt came out CRLF — a whole-file diff on the next run (live run,
+    27.10.2026). Binary data is written byte for byte.
     """
     path = str(path)
     directory = os.path.dirname(os.path.abspath(path))
     tmp = os.path.join(directory, f".{os.path.basename(path)}.kaeris-tmp")
     mode = "wb" if binary else "w"
-    kwargs = {} if binary else {"encoding": "utf-8"}
+    kwargs = {} if binary else {"encoding": "utf-8", "newline": existing_eol(path)}
     try:
         with open(tmp, mode, **kwargs) as f:
             f.write(data)
@@ -1764,10 +1926,21 @@ def build_parser():
     t.add_argument("--keep", "--glossary", dest="keep", default=None,
                    help="Comma-separated terms to never translate (brand/product names), e.g. --keep 'KAERIS,GitHub'"
                         " (default: 'keep' in kaeris.json). --glossary is the same flag.")
+    t.add_argument("--glossary-file", dest="glossary_file", default=None, metavar="PATH",
+                   help=f"Terms and how each language must say them, e.g. workspace -> de "
+                        f"Arbeitsbereich (default: 'glossary_file' in kaeris.json, else "
+                        f"./{gl.FILENAME} if it exists). Sent to the model with the strings; "
+                        "with --only-new a changed term re-translates the strings that use it "
+                        "and do not already say it the new way.")
     t.add_argument("--context", default=None,
                    help="One line about what the app is, e.g. --context 'a bank app for teenagers'. "
                         "The model uses it to pick the right sense of ambiguous strings "
                         f"(max {APP_CONTEXT_LIMIT} chars; default: 'context' in kaeris.json)")
+    t.add_argument("--model", default=None, metavar="ID",
+                   help="Lifetime (BYOK): the OpenRouter model to translate with, e.g. "
+                        "--model openai/gpt-4.1 (default: 'model' in kaeris.json; 'models' "
+                        "sets one per language, e.g. {\"de\": \"anthropic/claude-sonnet-4.5\"}). "
+                        "On other plans the server refuses it and says why")
     t.add_argument("--verify", action="store_true",
                    help="Back-translation and meaning check for your review: back-translate "
                         "into --back-lang, flag lines whose meaning may have changed, and "
@@ -1871,6 +2044,12 @@ def build_parser():
                    help="Comma-separated terms the translation must keep verbatim, e.g. "
                         "--glossary 'KAERIS,GitHub' (default: 'keep' in kaeris.json). "
                         "A target that dropped one fails the check.")
+    c.add_argument("--glossary-file", dest="glossary_file", default=None, metavar="PATH",
+                   help=f"Terms and how each language must say them (default: 'glossary_file' "
+                        f"in kaeris.json, else ./{gl.FILENAME} if it exists). A term of the "
+                        "source translated with another word fails the check; in languages "
+                        "whose words change shape (ru, pl, fi, de compounds...) a miss is a "
+                        "warning, since an inflected form is still matched by its stem.")
     c.add_argument("--strict", action="store_true",
                    help="Also fail (non-zero exit) if a target has extra/stale keys not in the source")
     c.add_argument("--json", action="store_true", help="Machine-readable JSON output instead of the human report")
