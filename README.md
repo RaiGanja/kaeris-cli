@@ -384,7 +384,7 @@ Add two workflows and translations arrive as a normal pull request — reviewed 
 any other code change, no separate translation tool to context-switch into — while a second
 workflow blocks merges that leave a locale incomplete or placeholder-broken.
 
-The [`kaeris-translate`](https://github.com/RaiGanja/kaeris-action/blob/main/action.yml) composite action has
+The [`kaeris-translate`](https://github.com/kaeris-io/kaeris-action/blob/main/action.yml) composite action has
 two modes:
 
 - **`mode: translate`** (default) — runs `kaeris translate`, then a `kaeris check --json` before
@@ -396,10 +396,10 @@ two modes:
   the job) if any target locale is missing keys or has a placeholder mismatch — the i18n firewall.
 
 **1. Auto-PR on every push** — see
-[`translate.example.yml`](https://github.com/RaiGanja/kaeris-cli/blob/main/.github/workflows/translate.example.yml):
+[`translate.example.yml`](https://github.com/kaeris-io/kaeris-cli/blob/main/.github/workflows/translate.example.yml):
 
 ```yaml
-- uses: RaiGanja/kaeris-action@v1
+- uses: kaeris-io/kaeris-action@v1
   id: kaeris
   with:
     mode: translate
@@ -418,10 +418,10 @@ two modes:
 ```
 
 **2. Firewall on every PR** — see
-[`i18n-check.example.yml`](https://github.com/RaiGanja/kaeris-cli/blob/main/.github/workflows/i18n-check.example.yml):
+[`i18n-check.example.yml`](https://github.com/kaeris-io/kaeris-cli/blob/main/.github/workflows/i18n-check.example.yml):
 
 ```yaml
-- uses: RaiGanja/kaeris-action@v1
+- uses: kaeris-io/kaeris-action@v1
   with:
     mode: check
     source: locales/en.json

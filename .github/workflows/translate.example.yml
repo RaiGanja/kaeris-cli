@@ -28,7 +28,7 @@ jobs:
 
       - name: Translate new/changed keys
         id: kaeris
-        uses: RaiGanja/kaeris-cli/.github/actions/kaeris-translate@main
+        uses: kaeris-io/kaeris-cli/.github/actions/kaeris-translate@main
         with:
           mode: translate
           source: locales/en.json

@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: kaeris check --ci (i18n firewall)
-        uses: RaiGanja/kaeris-cli/.github/actions/kaeris-translate@main
+        uses: kaeris-io/kaeris-cli/.github/actions/kaeris-translate@main
         with:
           mode: check
           source: locales/en.json
