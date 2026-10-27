@@ -1,4 +1,11 @@
+<img src="https://kaeris.dev/icon-512.png" alt="KAERIS" width="72" align="left" style="margin-right:16px" />
+
 # kaeris
+
+[![npm](https://img.shields.io/npm/v/kaeris)](https://www.npmjs.com/package/kaeris)
+[![license](https://img.shields.io/npm/l/kaeris)](https://github.com/kaeris-io/kaeris-cli/blob/main/LICENSE)
+[![node](https://img.shields.io/node/v/kaeris)](https://www.npmjs.com/package/kaeris)
+[![install size](https://img.shields.io/badge/dependencies-0-brightgreen)](https://www.npmjs.com/package/kaeris?activeTab=dependencies)
 
 An i18n check for CI. It compares your source locale file with its translations and exits non-zero
 when a translation is missing, a key is left over, or a placeholder was lost or renamed:
@@ -81,7 +88,7 @@ Flags can be left out when `kaeris.json` in the working directory has `source`, 
 
 ## Relation to the Python package
 
-This is a port of `kaeris check` from the [Python package](https://github.com/RaiGanja/kaeris-cli).
+This is a port of `kaeris check` from the [Python package](https://github.com/kaeris-io/kaeris-cli).
 The same files give the same report and exit code; the Python repository holds the corpus that
 proves it. `translate`, `fix`, `init`, `languages` and `quota` talk to the service and stay in the
 Python package: `pipx install kaeris`.
