@@ -115,6 +115,21 @@ _PLAN_NAMES = {"premium": "Pro", "teamapi": "Team/API", "byok": "Lifetime", "tea
                "free": "Free key", "anonymous": "Free"}
 
 
+def _fallback_line(rec):
+    """Why the backup model answered instead of the primary, or None when it did not.
+
+    The server sends `fallback` (model, batches, languages, first reason) since the backup
+    started answering 1-4 runs in 10 with nothing said about it. A run whose wording changes
+    from one day to the next deserves to know which model wrote it and why."""
+    fb = rec.get("fallback") or {}
+    if not fb.get("model"):
+        return None
+    where = ", ".join(fb.get("languages") or []) or "?"
+    n = fb.get("batches") or 1
+    return (f"backup model {fb['model']} answered instead of {rec.get('model', '?')} "
+            f"({n} batch{'es' if n != 1 else ''}, {where}): {fb.get('reason') or 'reason not given'}")
+
+
 def _fmt_receipt(rec):
     """Two lines a human reads, plus the things worth interrupting them for.
 
@@ -131,6 +146,8 @@ def _fmt_receipt(rec):
     # The model that did the work, not the one configured: with the primary down the fallback
     # translated and this line still named the primary (R29).
     served = [m for m in (rec.get("models_served") or []) if m]
+    backup = (rec.get("fallback") or {}).get("model")
+    served = [f"{m} (backup)" if backup and m == backup else m for m in served]
     lines.append(
         f"Run: {' + '.join(served) if served else rec.get('model', '?')} · "
         f"{_PLAN_NAMES.get(rec.get('plan'), rec.get('plan')) or 'plan hidden'} · "
@@ -196,6 +213,9 @@ def _show_receipt(client, job):
     lines, failed = _fmt_receipt(rec)
     info(lines[0])
     print(lines[1], file=sys.stderr)
+    backup = _fallback_line(rec)
+    if backup:
+        warn(backup)
     # A glossary term that was never in the file was never going to be honoured. Collected
     # here and said once at the end of the run, about the whole run (_say_absent_glossary).
     for g in rec.get("glossary") or []:
