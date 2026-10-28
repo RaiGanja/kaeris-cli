@@ -955,11 +955,22 @@ def _terms_opt(args, langs):
     return {"terms": out} if out else {}
 
 
-def _run_job(client, fname, content, langs, args, reuse=None, label=""):
+def _verify_opts(args, verify_reused):
+    """What verify should read beyond this run's translations. Sent only when it says
+    something, so an older server and the test stubs see the call they know."""
+    if not args.verify:
+        return {}
+    if getattr(args, "verify_all", False):
+        return {"verify_all": True}
+    return {"verify_reused": verify_reused} if verify_reused else {}
+
+
+def _run_job(client, fname, content, langs, args, reuse=None, label="", verify_reused=None):
     """Submit one job, wait for it, fetch the archive: the part that only waits on the server,
     so it can run beside other jobs. Returns (job, status, members)."""
     for attempt in range(RESTART_RETRIES + 1):
         job = client.submit(fname, content, langs, _glossary(args), reuse=reuse,
+                            **_verify_opts(args, verify_reused),
                             verify=args.verify, back_lang=args.back_lang,
                             tone=_tone(args), icu=args.icu,
                             app_context=_app_context(args),
@@ -1303,14 +1314,52 @@ def _tm_reuse(memory, source_flat, langs, sig, entries=None):
     return (hits or None), n
 
 
-def _tm_commit(memory, tm_path, source_flat, preview, sig):
-    """Fold this run's results back into the project memory."""
+def _tm_to_check(args, memory, source_flat, reuse, sig):
+    """The remembered lines verify should read anyway: the ones that never passed it. They
+    are still reused (translating them again would charge for a line we already have), but
+    the server checks them once, so skipping a check never turns into never checking."""
+    if memory is None or not reuse or not args.verify or getattr(args, "verify_all", False):
+        return None
+    return tmem.unverified(memory, source_flat, reuse, sig) or None
+
+
+def _verified_ok(args, data, source_flat, reuse, verify_reused, failed=()):
+    """{lang: [key, ...]} of the lines verify read in this run and found nothing wrong with:
+    no meaning finding, no detector warning, not left unchecked. Only those get the mark."""
+    if not args.verify or not data:
+        return {}
+    review = data.get("_review") or {}
+    warnings = data.get("_warnings") or {}
+    out = {}
+    for lang, rv in review.items():
+        if lang in (failed or ()) or not isinstance(rv, dict):
+            continue
+        bad = set()
+        for st in ("error", "review", "unchecked"):
+            bad.update(rv.get(st) or [])
+        bad.update((warnings.get(lang) or {}).keys())
+        if getattr(args, "verify_all", False):
+            read = set(source_flat)
+        else:
+            skipped = (set((reuse or {}).get(lang) or {})
+                       - set((verify_reused or {}).get(lang) or []))
+            read = {k for k in source_flat if k not in skipped}
+        ok_keys = sorted(read - bad)
+        if ok_keys:
+            out[lang] = ok_keys
+    return out
+
+
+def _tm_commit(memory, tm_path, source_flat, preview, sig, verified=None):
+    """Fold this run's results back into the project memory, and mark what verify passed."""
     if memory is None or not preview:
         return
     translations = {k: v for k, v in preview.items()
                     if not k.startswith("_") and isinstance(v, dict)}
     added = tmem.record(memory, source_flat, translations, sig)
-    if not added:
+    marked = sum(tmem.mark_verified(memory, source_flat, lang, keys, sig)
+                 for lang, keys in (verified or {}).items())
+    if not added and not marked:
         return
     try:
         tmem.save(tm_path, memory, lambda p, body: write_atomic(p, body))
@@ -1318,7 +1367,8 @@ def _tm_commit(memory, tm_path, source_flat, preview, sig):
         warn(f"could not write the project memory {tm_path}: {e}")
         return
     strings, pairs = tmem.count(memory)
-    info(f"Project memory: +{added} · {strings} strings, {pairs} translations in "
+    checked = f", {marked} newly verified" if marked else ""
+    info(f"Project memory: +{added}{checked} · {strings} strings, {pairs} translations in "
          f"{os.path.basename(tm_path)}")
 
 
@@ -1326,6 +1376,12 @@ def _incremental(path, args):
     """True when this file goes through --only-new (JSON and ARB); other formats warn and are
     translated whole."""
     if not args.only_new:
+        return False
+    if args.verify and getattr(args, "verify_all", False):
+        if not getattr(_incremental, "said", False):
+            info("--verify-all reads every line, so this run sends the whole file; lines the "
+                 "project memory has are still reused, not translated again")
+            _incremental.said = True
         return False
     if path.lower().endswith((".json", ".arb")):
         return True
@@ -1369,11 +1425,31 @@ def _start_one(client, pool, path, langs, args, label=""):
     reuse, n_reused = _tm_reuse(memory, source_flat, langs, sig, _term_entries(args))
     if n_reused:
         info(f"Project memory: {n_reused} string/language pair(s) reused, not re-translated")
+    to_check = _tm_to_check(args, memory, source_flat, reuse, sig)
+    _say_verify_scope(args, n_reused, to_check)
 
     info(f"Translating {fname} → {', '.join(langs)}")
-    future = pool.submit(_run_job, client, fname, content, langs, args, reuse, label)
+    future = pool.submit(_run_job, client, fname, content, langs, args, reuse, label, to_check)
     return {"path": path, "future": future, "tm_path": tm_path, "sig": sig,
-            "memory": memory is not None, "source_flat": source_flat}
+            "memory": memory is not None, "source_flat": source_flat,
+            "reuse": reuse, "verify_reused": to_check}
+
+
+def _say_verify_scope(args, n_reused, to_check):
+    """One line on what --verify reads when the memory served part of the file."""
+    if not args.verify or not n_reused:
+        return
+    if getattr(args, "verify_all", False):
+        info("Verify: every line, remembered ones included (--verify-all)")
+        return
+    once = sum(len(v) for v in (to_check or {}).values())
+    trusted = n_reused - once
+    bits = []
+    if trusted:
+        bits.append(f"{trusted} remembered line(s) passed before and are not read again")
+    if once:
+        bits.append(f"{once} remembered line(s) never checked are read now, once")
+    info("Verify: new and edited lines; " + "; ".join(bits) + " (--verify-all reads everything)")
 
 
 def _finish_one(client, ticket, args):
@@ -1399,9 +1475,11 @@ def _finish_one(client, ticket, args):
     if ticket["memory"]:
         # Read again rather than reuse what was loaded before the job: with several files in
         # flight and one --tm, another file may have saved its strings in the meantime.
-        _tm_commit(tmem.load(ticket["tm_path"]), ticket["tm_path"],
-                   ticket["source_flat"] or (data or {}).get("_source") or {},
-                   data, ticket["sig"])
+        flat = ticket["source_flat"] or (data or {}).get("_source") or {}
+        _tm_commit(tmem.load(ticket["tm_path"]), ticket["tm_path"], flat, data, ticket["sig"],
+                   verified=_verified_ok(args, data, flat, ticket.get("reuse"),
+                                         ticket.get("verify_reused"),
+                                         status.get("failed_langs") or []))
     rec = _show_receipt(client, job)
     if rec and getattr(args, "receipt", None):
         write_atomic(args.receipt, json.dumps(rec, ensure_ascii=False, indent=2))
@@ -1671,13 +1749,14 @@ def _translate_incremental(client, path, out_dir, langs, args):
         reuse, n_reused = _tm_reuse(memory, todo, [lang], sig, entries)
         if n_reused:
             info(f"{lang}: {n_reused} of them come from the project memory, not the model")
+        to_check = _tm_to_check(args, memory, todo, reuse, sig)
         future = pool.submit(_run_job, client, os.path.basename(path), content, [lang], args,
-                             reuse, lang if len(langs) > 1 else "")
-        work.append((lang, target_path, existing, todo, future))
+                             reuse, lang if len(langs) > 1 else "", to_check)
+        work.append((lang, target_path, existing, todo, future, reuse, to_check))
     pool.shutdown(wait=False)
 
     job_failed = False
-    for lang, target_path, existing, todo, future in work:
+    for lang, target_path, existing, todo, future, reuse, to_check in work:
         result, error = _outcome(future)
         if error is not None:
             # One language's job failing no longer takes the others down with it: they were
@@ -1702,12 +1781,13 @@ def _translate_incremental(client, path, out_dir, langs, args):
             broken.update(todo)  # not merged — keep these keys stale-locked
             broken_by_lang.setdefault(lang, set()).update(todo)
             continue
-        if memory is not None:
-            _tm_commit(memory, tm_path, todo, {lang: translated}, sig)
         rec = _show_receipt(client, job)
         if rec:
             receipts.append(rec)
-        _show_qa(client, job, args, path)
+        data = _show_qa(client, job, args, path)
+        if memory is not None:
+            _tm_commit(memory, tm_path, todo, {lang: translated}, sig,
+                       verified=_verified_ok(args, data, todo, reuse, to_check))
         merged = inc.merge_translation(existing, translated, source_obj)
         if is_arb:
             merged["@@locale"] = lang  # stamp the target locale on the written ARB
@@ -1945,6 +2025,10 @@ def build_parser():
                    help="Back-translation and meaning check for your review: back-translate "
                         "into --back-lang, flag lines whose meaning may have changed, and "
                         "write verify.json with the lines to read")
+    t.add_argument("--verify-all", dest="verify_all", action="store_true",
+                   help="With --verify: read every line again, including the ones the project "
+                        "memory already checked. Without it verify reads new and edited lines, "
+                        "and a remembered line only until it passes once")
     t.add_argument("--back-lang", default="en",
                    help="Language for --verify back-translation (default: en)")
     t.add_argument("--apply-fixes", dest="apply_fixes", action="store_true",

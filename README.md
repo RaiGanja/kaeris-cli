@@ -177,6 +177,12 @@ different glossary or a different model is a different answer, so changing any o
 retranslates rather than serving something produced under rules that no longer apply. Use
 `--no-tm` to ignore it for one run.
 
+With `--verify`, the meaning check reads what this run translates: new and edited lines. A
+remembered line is read until it passes once (`kaeris-tm.json` marks it, `"v": {"de": true}`),
+then it is trusted and not charged again. A line the check flagged, or whose translation changed,
+loses the mark and is read on the next run. Placeholder, ICU and tag checks are free and still
+run on every line, remembered or not. `--verify-all` reads everything again.
+
 ## What the run actually did
 
 Every `kaeris translate` ends with two lines about the run itself:
@@ -476,6 +482,7 @@ Anything not passed falls back to `kaeris.json`, then to the built-in default.
 | `--icu` / `--no-icu` | hint that strings use ICU MessageFormat, so plurals/select survive |
 | `--source-lang en` | base language code; also detects `locales/<lang>/<namespace>.json` layouts |
 | `--verify` | back-translation and meaning check for your review; prints `⚠ meaning:` lines and writes `verify.json` |
+| `--verify-all` | with `--verify`: read every line again, including lines the project memory already checked |
 | `--back-lang en` | language to back-translate into with `--verify` |
 | `--apply-fixes` | with `--verify`: write the fixes into the translated files, only where our checks pass them; same as `kaeris fix` afterwards |
 | `--translate-service-keys` | also translate keys that start with `_` (`"_status"`); by default they are copied through untouched in JSON, YAML and ARB |

@@ -323,7 +323,7 @@ class KaerisClient:
     def _multipart(self, filename, content, languages, glossary=None,
                    verify=False, back_lang="en", tone="", icu=False, reuse=None,
                    app_context="", translate_service_keys=False, model="", models=None,
-                   terms=None):
+                   terms=None, verify_reused=None, verify_all=False):
         boundary = "----kaeris" + uuid.uuid4().hex
         crlf = b"\r\n"
         parts = []
@@ -393,6 +393,18 @@ class KaerisClient:
             parts.append(b'Content-Disposition: form-data; name="reuse"')
             parts.append(b"")
             parts.append(json.dumps(reuse, ensure_ascii=False).encode())
+        # Only with verify: which remembered lines to check anyway, or re-check everything.
+        # Sent only when set, so an older server sees the request it knows.
+        if verify and verify_reused:
+            parts.append(b"--" + boundary.encode())
+            parts.append(b'Content-Disposition: form-data; name="verify_reused"')
+            parts.append(b"")
+            parts.append(json.dumps(verify_reused, ensure_ascii=False).encode())
+        if verify and verify_all:
+            parts.append(b"--" + boundary.encode())
+            parts.append(b'Content-Disposition: form-data; name="verify_all"')
+            parts.append(b"")
+            parts.append(b"1")
         parts.append(b"--" + boundary.encode() + b"--")
         parts.append(b"")
         body = crlf.join(parts)
@@ -401,7 +413,7 @@ class KaerisClient:
     def submit(self, filename, content, languages, glossary=None,
                verify=False, back_lang="en", tone="", icu=False, reuse=None,
                app_context="", translate_service_keys=False, model="", models=None,
-               terms=None):
+               terms=None, verify_reused=None, verify_all=False):
         """POST a file for translation; returns job_id.
 
         terms: the entries of kaeris-glossary.json, [{"term", "translations": {lang: [word,
@@ -423,15 +435,18 @@ class KaerisClient:
              (plurals/select) so it preserves the syntax.
         reuse: optional {lang: {key: previous_translation}} translation-memory map;
                the server reuses unchanged strings verbatim and only translates
-               new/changed ones. Not currently populated by the CLI's --only-new
-               (which instead diffs client-side and submits a smaller subset).
+               new/changed ones; they are not charged, and verify does not read them again.
+        verify_reused: {lang: [key, …]} — remembered lines (in `reuse`) that never passed
+               verify: the server checks them without translating them again.
+        verify_all: True to have verify re-check every line, remembered or not.
         """
         body, ctype = self._multipart(filename, content, languages, glossary,
                                       verify=verify, back_lang=back_lang,
                                       tone=tone, icu=icu, reuse=reuse,
                                       app_context=app_context,
                                       translate_service_keys=translate_service_keys,
-                                      model=model, models=models, terms=terms)
+                                      model=model, models=models, terms=terms,
+                                      verify_reused=verify_reused, verify_all=verify_all)
         waited = 0
         for attempt in range(SUBMIT_RETRIES + 1):
             req = urllib.request.Request(
