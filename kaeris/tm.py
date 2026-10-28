@@ -18,6 +18,11 @@ The settings are part of the key on purpose. A string translated with `--tone fo
 the same answer as one translated casually, and a glossary or model change means the old text
 was produced under rules that no longer apply. Same rule the lock follows.
 
+Each entry also says which languages passed `--verify` (`"v": {"de": true}`). A remembered
+line that passed is not checked again; one that never did is reused all the same — not
+translated twice — and named to the API as `verify_reused`, so it is checked once. A changed
+translation loses its mark.
+
 Zero dependencies, like the rest of this package.
 """
 import hashlib
@@ -113,13 +118,55 @@ def record(memory, source_flat, translations, signature):
             slot = entries.setdefault(entry_id(text, signature), {"source": text})
             if slot.get(lang) != translated:
                 added += 1
+                # A new text was not checked: the old mark was about the old text.
+                v = slot.get("v")
+                if isinstance(v, dict) and v.pop(lang, None) is not None and not v:
+                    slot.pop("v")
             slot[lang] = translated
     return added
+
+
+def mark_verified(memory, source_flat, lang, keys, signature):
+    """Remember that these lines passed the meaning check in `lang`. Returns how many marks are
+    new. Only lines the memory holds can be marked."""
+    entries = memory.get("entries") or {}
+    added = 0
+    for key in keys:
+        text = source_flat.get(key)
+        if not isinstance(text, str):
+            continue
+        slot = entries.get(entry_id(text, signature))
+        if not isinstance(slot, dict) or not isinstance(slot.get(lang), str):
+            continue
+        v = slot.get("v") if isinstance(slot.get("v"), dict) else {}
+        if not v.get(lang):
+            v[lang] = True
+            slot["v"] = v
+            added += 1
+    return added
+
+
+def unverified(memory, source_flat, hits, signature):
+    """{lang: [key, …]} of the reused lines (`hits`, as lookup() returns) that never passed
+    verify in that language — the ones to check once."""
+    entries = memory.get("entries") or {}
+    out = {}
+    for lang, kv in (hits or {}).items():
+        keys = []
+        for key in kv:
+            text = source_flat.get(key)
+            slot = entries.get(entry_id(text, signature)) if isinstance(text, str) else None
+            v = (slot or {}).get("v")
+            if not (isinstance(v, dict) and v.get(lang)):
+                keys.append(key)
+        if keys:
+            out[lang] = keys
+    return out
 
 
 def count(memory):
     entries = memory.get("entries") or {}
     strings = len(entries)
-    pairs = sum(len([k for k in e if k != "source"]) for e in entries.values()
+    pairs = sum(len([k for k in e if k not in ("source", "v")]) for e in entries.values()
                 if isinstance(e, dict))
     return strings, pairs
