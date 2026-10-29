@@ -1188,16 +1188,20 @@ def _dry_source(path):
     return kind, None, _strings(fm.read_one(path, "source"))
 
 
-def _dry_row(todo, reused, n_source, verify):
+def _dry_row(todo, reused, n_source, verify, ask=(), everything=False):
     """One language's line of the estimate. `todo` is what the job would carry, `reused` the
-    keys of it the project memory answers without the model."""
+    keys of it the project memory answers without the model. Verify reads what was translated
+    plus the remembered lines in `ask` (the `verify_reused` the run would send), or the whole
+    job with `everything` (--verify-all): the server's `verify_chars`."""
     sent = sum(len(v) for v in todo.values())
     free = sum(len(v) for k, v in todo.items() if k in reused)
+    read = sent if everything else sent - free + sum(len(todo[k]) for k in reused if k in ask)
     return {"keys_to_translate": len(todo) - len(reused), "keys_reused": len(reused),
             "keys_up_to_date": n_source - len(todo), "send_characters": sent,
             "translated_characters": sent - free, "reused_characters": free,
-            "verify_characters": 2 * sent if verify else 0,
-            "charged": est.metered(sent - free, sent, verify)}
+            "verify_read_characters": read if verify else 0,
+            "verify_characters": 2 * read if verify else 0,
+            "charged": est.metered(sent - free, read, verify)}
 
 
 def _reused_keys(reuse, lang, todo):
@@ -1243,16 +1247,21 @@ def _dry_plan(client, path, langs, args):
                 if not settings_changed:
                     todo.update({k: source_flat[k] for k in stale if k not in todo})
             reuse, _n = _tm_reuse(memory, todo, [lang], sig, entries)
-            rows[lang] = _dry_row(todo, _reused_keys(reuse, lang, todo), len(source_flat), verify)
+            to_check = _tm_to_check(args, memory, todo, reuse, sig)
+            rows[lang] = _dry_row(todo, _reused_keys(reuse, lang, todo), len(source_flat), verify,
+                                  (to_check or {}).get(lang) or (),
+                                  getattr(args, "verify_all", False))
             if todo:
                 jobs.append({"langs": [lang], "chars": rows[lang]["send_characters"]})
     else:
         if not source_flat:
             raise ValueError("no translatable strings")
         reuse, _n = _tm_reuse(memory, source_flat, langs, sig, entries)
+        to_check = _tm_to_check(args, memory, source_flat, reuse, sig)
         for lang in langs:
             rows[lang] = _dry_row(source_flat, _reused_keys(reuse, lang, source_flat),
-                                  len(source_flat), verify)
+                                  len(source_flat), verify, (to_check or {}).get(lang) or (),
+                                  getattr(args, "verify_all", False))
         jobs.append({"langs": list(langs), "chars": sum(len(v) for v in source_flat.values())})
         if kind in ("json", "arb") and any(
                 os.path.isfile(_out_path(path, l, args.out, args.source_lang, args.lang_case))

@@ -200,8 +200,9 @@ Pro: 10,800,000 of 12,000,000 left this month; after this run 10,787,606 left, r
 It reads your files, your lock (`--lock`), your project memory (`--tm`) and your settings, works
 out which lines a real run would send to the model, and prices them the way the server does:
 characters sent, per language. Lines the lock says are current and lines the memory already
-has are not counted. With `--verify`, each language also costs twice the whole file (the
-back-translation and the independent check read all of it, reused lines included).
+has are not counted. With `--verify`, each language also costs twice the lines verify
+reads (the back-translation and the independent check): what is translated now, plus remembered
+lines that never passed verify; with `--verify-all`, the whole file.
 
 - Nothing is translated and no file is sent. It asks the server only for your plan, the same
   call as `kaeris quota`. Without a key, or with the server out of reach, you still get the

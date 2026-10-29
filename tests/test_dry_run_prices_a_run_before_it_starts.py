@@ -5,7 +5,7 @@ could not see in advance. --dry-run prices the run the way the server does and s
 left, without translating or sending anything.
 
 The pricing rule is the server's (backend/main.py `_meter_cost_one`): the characters actually
-sent to the model, plus twice the whole job when verify is on. The pricing page's own example
+sent to the model, plus twice the lines verify reads (see TestTheProjectMemory). The pricing page's own example
 is a test below: 10,000 characters into 5 languages is 50,000, or 150,000 with the meaning check.
 
 Every test drives main(argv), and the stub client refuses `submit`: a dry run that sent a file
@@ -258,16 +258,76 @@ class TestTheProjectMemory:
         _, rep, _ = dry_json([src, "--langs", "de", "--tm", str(tmp_path / "elsewhere.json")], capsys)
         assert rep["files"][0]["languages"]["de"]["keys_reused"] == 1
 
-    def test_verify_still_costs_twice_the_whole_job(self, server, capsys, tmp_path):
-        """backend `_meter_cost_one`: verify re-checks the whole job whether or not lines were
-        reused, so it is 2 x char_count, not 2 x what was translated."""
+    def _remember_verified(self, tmp_path, pairs, verified):
+        """Memory holding `pairs` for de; the lines in `verified` also passed verify."""
+        sig = inc.settings_signature("", False, [], "m1", "")
+        memory = {"version": tm.VERSION, "entries": {}}
+        tm.record(memory, {k: k for k in pairs}, {"de": dict(pairs)}, sig)
+        tm.mark_verified(memory, {k: k for k in pairs}, "de", list(verified), sig)
+        tm.save(str(tmp_path / "locales" / tm.FILENAME), memory, K.write_atomic)
+
+    # Production main.py `_meter_cost_one` / `_meter_cost_by_lang`: verify is charged 2 x
+    # verify_chars = what is translated now + the remembered lines sent as `verify_reused`;
+    # `verify_all` makes it the whole job.
+
+    def test_verify_reads_what_was_translated_and_the_never_checked_memory(
+            self, server, capsys, tmp_path):
         src = write_json(tmp_path / "locales" / "en.json", EN)
-        self._remember(tmp_path, {"Checkout": "Zur Kasse"})
+        # "Checkout" passed verify before; "Tap to open" was remembered but never checked.
+        self._remember_verified(tmp_path, {"Checkout": "Zur Kasse", "Tap to open": "Tippen"},
+                                ["Checkout"])
         _, rep, _ = dry_json([src, "--langs", "de", "--verify"], capsys)
         row = rep["files"][0]["languages"]["de"]
+        translated = chars(EN) - len("Checkout") - len("Tap to open")
+        assert row["translated_characters"] == translated
+        assert row["verify_read_characters"] == translated + len("Tap to open")
+        assert row["charged"] == translated + 2 * (translated + len("Tap to open"))
+
+    def test_verify_with_everything_remembered_and_checked_costs_only_the_translation(
+            self, server, capsys, tmp_path):
+        src = write_json(tmp_path / "locales" / "en.json", {"a": "Checkout"})
+        self._remember_verified(tmp_path, {"Checkout": "Zur Kasse"}, ["Checkout"])
+        _, rep, _ = dry_json([src, "--langs", "de", "--verify"], capsys)
+        assert rep["files"][0]["languages"]["de"]["charged"] == 0
+
+    def test_verify_all_reads_the_whole_job_again(self, server, capsys, tmp_path):
+        src = write_json(tmp_path / "locales" / "en.json", EN)
+        self._remember_verified(tmp_path, {"Checkout": "Zur Kasse"}, ["Checkout"])
+        _, rep, _ = dry_json([src, "--langs", "de", "--verify", "--verify-all"], capsys)
+        row = rep["files"][0]["languages"]["de"]
         assert row["translated_characters"] == chars(EN) - len("Checkout")
-        assert row["verify_characters"] == 2 * chars(EN)
-        assert row["charged"] == row["translated_characters"] + 2 * chars(EN)
+        assert row["verify_read_characters"] == chars(EN)
+        assert row["charged"] == chars(EN) - len("Checkout") + 2 * chars(EN)
+
+    def test_verify_without_memory_is_three_times_the_file(self, server, capsys, tmp_path):
+        src = write_json(tmp_path / "locales" / "en.json", EN)
+        _, rep, _ = dry_json([src, "--langs", "de", "--verify", "--no-tm"], capsys)
+        assert rep["characters"] == 3 * chars(EN)
+
+    def test_only_new_with_memory_and_verify(self, server, capsys, tmp_path):
+        """de has two keys; the other two are sent. One of them is remembered and unchecked:
+        it is not translated but verify reads it."""
+        src = write_json(tmp_path / "locales" / "en.json", EN)
+        write_json(tmp_path / "locales" / "de.json",
+                   {"app": {"title": "Mein Shop"}, "checkout": "Zur Kasse"})
+        self._remember_verified(tmp_path, {"Buy anything, anywhere": "Kaufe alles"}, [])
+        _, rep, _ = dry_json([src, "--langs", "de", "--only-new", "--assume-current",
+                              "--verify"], capsys)
+        row = rep["files"][0]["languages"]["de"]
+        todo = chars(EN) - len("My Shop") - len("Checkout")
+        free = len("Buy anything, anywhere")
+        assert row["translated_characters"] == todo - free
+        assert row["verify_read_characters"] == todo       # translated + the unchecked memory line
+        assert row["charged"] == todo - free + 2 * todo
+
+    def test_only_new_with_verify_all_sends_the_whole_file(self, server, capsys, tmp_path):
+        """The real run drops --only-new for --verify-all and sends the whole file."""
+        src = write_json(tmp_path / "locales" / "en.json", EN)
+        write_json(tmp_path / "locales" / "de.json", EN)
+        _, rep, _ = dry_json([src, "--langs", "de", "--only-new", "--verify", "--verify-all"],
+                             capsys)
+        assert rep["files"][0]["mode"] == "whole file"
+        assert rep["characters"] == 3 * chars(EN)
 
 
 class TestSeveralFilesAndFormats:

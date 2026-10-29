@@ -7,11 +7,12 @@ module prices that the way the server does and sets it against the plan's limits
 The pricing rule is the server's, copied, never invented (backend/main.py, `_meter_cost_one`):
 
     cost of one language = characters actually sent to the model
-                           + 2 x the characters of the whole job when verify is on
+                           + 2 x verify_chars when verify is on
 
-Verify adds the back-translation and the independent judge, and both re-check the whole job,
-not only what was new, so remembered lines do not make it cheaper there. The pricing page says
-the same in other words ("three times with the meaning check"). The limits themselves (file
+Verify adds the back-translation and the independent judge over the lines it reads:
+verify_chars = what was translated in this run + the remembered lines the client asked to have
+checked (`verify_reused`), or the whole job with `verify_all` (production main.py, since
+28.10.2026). A remembered line that already passed verify is not read again. The limits themselves (file
 size, languages per run, monthly volume) are read from the server by the caller and passed in:
 this file holds no plan numbers, so a plan change on the server cannot leave a stale one here.
 """
@@ -21,10 +22,10 @@ PLAN_NAMES = {"premium": "Pro", "teamapi": "Team/API", "byok": "Lifetime", "team
               "free": "Free key", "anonymous": "Free"}
 
 
-def metered(billable, char_count, verify):
+def metered(billable, verify_chars, verify):
     """Characters one language costs against the monthly volume. `billable` is what is sent to
-    the model (nothing that is reused), `char_count` the whole job's source text."""
-    return billable + (2 * char_count if verify else 0)
+    the model (nothing that is reused), `verify_chars` what verify reads."""
+    return billable + (2 * verify_chars if verify else 0)
 
 
 def limits_for(key, config, own_model_key=False):
@@ -149,7 +150,7 @@ def render(rep):
                + (f" ({rep['reused_characters']:,} more reused, not charged)"
                   if rep["reused_characters"] else "") + ".")
     if rep["verify"]:
-        out.append("--verify is counted: each language also costs 2 x the job's characters "
+        out.append("--verify is counted: each language also costs 2 x the lines it reads "
                    "(back-translation and the independent check).")
     vol = rep["volume"]
     plan = rep["plan"]["name"]
