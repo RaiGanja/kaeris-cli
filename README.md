@@ -139,13 +139,13 @@ Get a key at <https://kaeris.dev/pricing.html>. A free OpenRouter key: <https://
 
 ## `kaeris quota` — how much of the month is left
 
-Paid plans include a monthly character volume (Pro 15M, Team/API 75M, counted as
+Paid plans include a monthly character volume (Pro 12M, Team/API 60M, counted as
 characters × languages). Ask before a large run, rather than finding out from a refusal in the
 middle of one:
 
 ```bash
 kaeris quota
-# ✓ Monthly volume: 1.2M of 15M used · 13.8M left · resets 2026-09-01
+# ✓ Monthly volume: 1.2M of 12M used · 10.8M left · resets 2026-09-01
 ```
 
 Every `kaeris translate` prints the same line when it finishes, and raises it to a warning once
