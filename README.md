@@ -188,7 +188,7 @@ run on every line, remembered or not. `--verify-all` reads everything again.
 Every `kaeris translate` ends with two lines about the run itself:
 
 ```
-→ Run: google/gemini-2.5-flash-lite · Pro · 3/3 languages · 412 strings · 18.4s
+→ Run: openai/gpt-6-luna · Pro · 3/3 languages · 412 strings · 18.4s
      124k charged · 38k reused free  ·  icu, verify, formal
 ```
 
@@ -450,7 +450,7 @@ Change detection is powered by `kaeris.lock` — a small JSON file written next 
 file after every incremental run. It records a SHA-256 of each source string **plus the
 settings that produced it**: your tone, your glossary, your app context, and the model. Change any of them and
 the whole locale is re-translated, so it never ends up a mix of two tones or two models. Every
-tier runs the same model (Gemini 2.5 Flash-Lite), so a plan change alone never forces a re-translation —
+tier runs the same model (GPT-6 Luna), so a plan change alone never forces a re-translation —
 the lock records the model anyway, so the day we change it, you find out from a full re-run
 rather than from a locale quietly built by two models. The terms of `kaeris-glossary.json` are
 the exception: a changed term re-translates only the strings that use it (see "Glossary" above).
