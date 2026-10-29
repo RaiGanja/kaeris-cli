@@ -13,6 +13,8 @@ import urllib.request
 import urllib.error
 import urllib.parse
 
+from . import __version__
+
 DEFAULT_API = "https://kaeris.dev"
 
 
@@ -255,7 +257,7 @@ class KaerisClient:
 
     # ── low-level ────────────────────────────────────────────────────────────
     def _headers(self, extra=None):
-        h = {"User-Agent": "kaeris-cli"}
+        h = {"User-Agent": "kaeris-cli/" + __version__}
         if self.api_key:
             h["X-API-Key"] = self.api_key
         if self.openrouter_key:
@@ -394,12 +396,13 @@ class KaerisClient:
             parts.append(b"")
             parts.append(json.dumps(reuse, ensure_ascii=False).encode())
         # Only with verify: which remembered lines to check anyway, or re-check everything.
-        # Sent only when set, so an older server sees the request it knows.
-        if verify and verify_reused:
+        # With remembered lines the field is always sent, `{}` when there is nothing to add:
+        # the server reads its absence as an old client and checks (and charges) the whole file.
+        if verify and (verify_reused or reuse):
             parts.append(b"--" + boundary.encode())
             parts.append(b'Content-Disposition: form-data; name="verify_reused"')
             parts.append(b"")
-            parts.append(json.dumps(verify_reused, ensure_ascii=False).encode())
+            parts.append(json.dumps(verify_reused or {}, ensure_ascii=False).encode())
         if verify and verify_all:
             parts.append(b"--" + boundary.encode())
             parts.append(b'Content-Disposition: form-data; name="verify_all"')
