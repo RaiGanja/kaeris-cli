@@ -17,7 +17,7 @@ class TestReadmeLinks(unittest.TestCase):
 
     def test_ci_examples_use_the_action_repo(self):
         self.assertNotIn("kaeris-cli/.github/actions", self.text)
-        self.assertIn("kaeris-io/kaeris-action@v1", self.text)
+        self.assertIn("kaeris-io/kaeris-action@v2", self.text)
 
 
 if __name__ == "__main__":

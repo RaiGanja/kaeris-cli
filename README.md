@@ -1,17 +1,39 @@
 <img src="https://kaeris.dev/icon-512.png" alt="KAERIS" width="72" align="left" style="margin-right:16px" />
 
-# KAERIS i18n — CLI
+# KAERIS CLI
 
-AI localization from your terminal. Translate your app's strings files into **46 languages** —
-locally or in CI/CD. Format-aware, placeholder-safe, and **incremental** (only new keys).
+Check locale files in CI and translate them into **46 languages** from the terminal.
 
-- **Zero dependencies** — pure Python stdlib, installs in a second
-- **13 formats** — JSON, YAML, `.strings`, Xcode String Catalog `.xcstrings`, Markdown/MDX, `.po`, ARB, Android XML, CSV (Godot/Unity), XLIFF 1.2, Java `.properties`, .NET `.resx`, Mozilla Fluent `.ftl`
-- **Incremental** — `--only-new` translates just the keys you added, merges the rest
-- **Translation QA** — flags dropped placeholders & UI-overflow risk; `--verify` is a back-translation and meaning check for your review: it flags lines whose meaning may have changed, with a reason and a suggested fix
-- **`kaeris check`** — an i18n firewall: fails CI if a locale is untranslated or placeholder-broken, no API call
-- **`kaeris quota`** — how much of your monthly volume is left, before a big run rather than after
-- **CI-ready** — GitHub Action included; open a PR with fresh translations on every push
+[![PyPI](https://img.shields.io/pypi/v/kaeris)](https://pypi.org/project/kaeris/)
+[![npm](https://img.shields.io/npm/v/kaeris)](https://www.npmjs.com/package/kaeris)
+[![tests](https://github.com/kaeris-io/kaeris-cli/actions/workflows/tests.yml/badge.svg)](https://github.com/kaeris-io/kaeris-cli/actions/workflows/tests.yml)
+[![license](https://img.shields.io/github/license/kaeris-io/kaeris-cli)](https://github.com/kaeris-io/kaeris-cli/blob/main/LICENSE)
+
+```bash
+pip install kaeris                                           # check and translate, Python 3.8+
+npx kaeris check --source locales/en.json --langs de,fr,ja   # the check only, Node 18+
+```
+
+- **`kaeris check`** fails the build when a translation is missing, a key is left over, or a
+  placeholder was lost or renamed. Offline, no key, no API call.
+- **`kaeris translate`** writes 46 languages. `--only-new` translates only the keys you added
+  and leaves the rest of each file as it was.
+- **`--verify`** translates each line back and flags the ones whose meaning may have changed,
+  with a reason and a suggested fix. `kaeris fix` writes the fixes into the files.
+- **13 formats**: JSON, YAML, `.strings`, `.xcstrings`, Markdown/MDX, `.po`, ARB, Android XML,
+  CSV, XLIFF 1.2, `.properties`, `.resx`, Fluent `.ftl`.
+- **No dependencies**: Python standard library only.
+- **CI**: [kaeris-io/kaeris-action](https://github.com/kaeris-io/kaeris-action) for GitHub,
+  [recipes](https://kaeris.dev/ci-github-actions.html) for GitLab, pre-commit and npm scripts.
+
+**Plans.** `kaeris check` is free. Translation: Free (no account, 8 languages per run),
+Pro $19/month with 12M characters, Team/API $79/month with 60M characters, Lifetime $79 once
+with your own OpenRouter key. See [kaeris.dev/pricing](https://kaeris.dev/pricing.html).
+
+[Docs](https://kaeris.dev/docs) · [Pricing](https://kaeris.dev/pricing.html) ·
+[Releases](https://github.com/kaeris-io/kaeris-cli/releases) ·
+[Discussions](https://github.com/kaeris-io/kaeris-cli/discussions) ·
+[Status](https://kaeris.dev/status.html) · [Security](https://github.com/kaeris-io/kaeris-cli/blob/main/SECURITY.md)
 
 ## Install
 
@@ -405,7 +427,7 @@ two modes:
 [`translate.example.yml`](https://github.com/kaeris-io/kaeris-cli/blob/main/.github/workflows/translate.example.yml):
 
 ```yaml
-- uses: kaeris-io/kaeris-action@v1
+- uses: kaeris-io/kaeris-action@v2
   id: kaeris
   with:
     mode: translate
@@ -427,7 +449,7 @@ two modes:
 [`i18n-check.example.yml`](https://github.com/kaeris-io/kaeris-cli/blob/main/.github/workflows/i18n-check.example.yml):
 
 ```yaml
-- uses: kaeris-io/kaeris-action@v1
+- uses: kaeris-io/kaeris-action@v2
   with:
     mode: check
     source: locales/en.json
