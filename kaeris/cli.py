@@ -22,6 +22,8 @@ from . import detectors as det
 from . import digits as dg
 from . import fixes as fx
 from . import glossary as gl
+from . import estimate as est
+from . import mdformat as mdf
 
 CONFIG_FILENAME = "kaeris.json"
 
@@ -1021,6 +1023,9 @@ def _show_demo_notice(client):
 
 
 def cmd_translate(args):
+    if getattr(args, "json", False) and not getattr(args, "dry_run", False):
+        err("--json is for --dry-run (the estimate); a real run prints its result as files")
+        return 2
     config, config_path = _load_config(args)
     if config_path:
         info(f"Using config: {config_path}")
@@ -1083,7 +1088,8 @@ def cmd_translate(args):
     args.lang_case = args.lang_case or (config.get("lang_case")
                                         if config.get("lang_case") in LANG_CASES else "keep")
 
-    if args.out:
+    dry = getattr(args, "dry_run", False)
+    if args.out and not dry:
         os.makedirs(args.out, exist_ok=True)
 
     client = _client(args)
@@ -1092,6 +1098,9 @@ def cmd_translate(args):
         err(f"Unknown language code: {', '.join(unknown)}. Run 'kaeris languages' for the list "
             "(codes like de, ja, pt-PT, zh-Hant).")
         return 1
+    if dry:
+        _target_path.warned = False
+        return _cmd_dry_run(client, files, langs, args)
     if not getattr(client, "api_key", "fake"):
         _show_demo_notice(client)
     _target_path.warned = False  # warn at most once per `translate` run, not per file/lang
@@ -1139,6 +1148,181 @@ def cmd_translate(args):
     # rather than inside _translate_one so the incremental (--only-new) path, which returns
     # earlier, reports it too.
     _show_quota(client)
+    return exit_code
+
+
+# ── --dry-run ─────────────────────────────────────────────────────────────────
+
+def _strings(flat):
+    """The strings of a parsed file: the server translates, and meters, only text. YAML numbers
+    and booleans ride through untouched."""
+    return {k: v for k, v in (flat or {}).items() if isinstance(v, str)}
+
+
+def _dry_source(path):
+    """(kind, JSON object or None, {key: text}) of a source file, as the server will read it.
+    JSON and ARB are read here like --only-new reads them; every other format through the
+    readers `check` uses, which are copies of the server's parsers."""
+    kind = fm.kind_of(path)
+    if kind is None:
+        raise KaerisError(f"{path}: kaeris reads {fm.SUPPORTED_TEXT}")
+    if kind in ("json", "arb"):
+        obj = inc.load_json(path)
+        if not isinstance(obj, dict):
+            raise ValueError("expected a JSON object")
+        flat = inc.flatten(obj)
+        if kind == "arb":
+            flat = {k: v for k, v in flat.items() if not _arb_meta_key(k)}
+        return kind, obj, flat
+    if kind in fm.MERGED:
+        file_lang, by_lang = fm.read_merged(path)
+        return kind, None, _strings(fm.find_lang(by_lang, file_lang))
+    if kind == "android":
+        # Unfolded: `check` reads <plurals> as one ICU string, the server counts one string
+        # per quantity (item/one, item/other) and that is what it charges.
+        return kind, None, _strings(fm.read_android(read_text(path), fold=False))
+    if kind == "markdown":
+        # Not fm.read_one: it joins CRLF lines first, as `check` wants, while the server reads
+        # the bytes as they are and counts the \r that ends each block. The bill is the server's.
+        return kind, None, _strings(mdf.parse_markdown(read_text(path)))
+    return kind, None, _strings(fm.read_one(path, "source"))
+
+
+def _dry_row(todo, reused, n_source, verify, ask=(), everything=False):
+    """One language's line of the estimate. `todo` is what the job would carry, `reused` the
+    keys of it the project memory answers without the model. Verify reads what was translated
+    plus the remembered lines in `ask` (the `verify_reused` the run would send), or the whole
+    job with `everything` (--verify-all): the server's `verify_chars`."""
+    sent = sum(len(v) for v in todo.values())
+    free = sum(len(v) for k, v in todo.items() if k in reused)
+    read = sent if everything else sent - free + sum(len(todo[k]) for k in reused if k in ask)
+    return {"keys_to_translate": len(todo) - len(reused), "keys_reused": len(reused),
+            "keys_up_to_date": n_source - len(todo), "send_characters": sent,
+            "translated_characters": sent - free, "reused_characters": free,
+            "verify_read_characters": read if verify else 0,
+            "verify_characters": 2 * read if verify else 0,
+            "charged": est.metered(sent - free, read, verify)}
+
+
+def _reused_keys(reuse, lang, todo):
+    """Keys the server would skip: a string for a key that is still in the job, the same rule
+    it applies to the `reuse` map it is sent."""
+    return {k for k, v in ((reuse or {}).get(lang) or {}).items()
+            if isinstance(v, str) and k in todo}
+
+
+def _dry_plan(client, path, langs, args):
+    """What `translate` would do with one file, without sending it: which lines go to the model
+    for each language, which come from the lock or the project memory, and what that costs.
+
+    The branches are the real run's (_translate_incremental for --only-new, _start_one for a
+    whole file), kept in the same order, so a change there is a change to read here."""
+    kind, source_obj, source_flat = _dry_source(path)
+    incremental = _incremental(path, args)
+    memory, _tm_path = _tm_open(args, path)
+    sig = _tm_signature(args, client) if memory is not None else ""
+    entries = _term_entries(args)
+    verify = bool(args.verify)
+    rows, jobs, note = {}, [], ""
+
+    if incremental:
+        lock_raw = inc.load_lock(args.lock or inc.default_lock_path(path))
+        cur_settings = inc.settings_signature(_tone(args), args.icu, _glossary(args),
+                                              _model_signature(args, client), _app_context(args))
+        settings_changed = inc.settings_changed(inc.lock_settings(lock_raw), cur_settings)
+        if settings_changed:
+            note = ("The settings or the model changed since the lock: every key is counted, "
+                    "as the real run re-translates the whole locale.")
+        locked_terms = lock_raw.get("glossary") if isinstance(lock_raw.get("glossary"), dict) else {}
+        for lang in langs:
+            target = _out_path(path, lang, args.out, args.source_lang, args.lang_case)
+            existing_flat = inc.flatten(inc.load_json(target)) if os.path.isfile(target) else {}
+            todo = (dict(source_flat) if settings_changed else
+                    inc.changed_or_missing_keys(source_flat, existing_flat,
+                                                inc.lock_keys(lock_raw, lang)))
+            if entries or locked_terms.get(lang):
+                fps = {e.term.casefold(): e.fingerprint(lang) for e in entries if e.renderings(lang)}
+                stale = gl.stale_keys(source_flat, existing_flat, lang, entries,
+                                      gl.changed_terms(locked_terms.get(lang), fps))
+                if not settings_changed:
+                    todo.update({k: source_flat[k] for k in stale if k not in todo})
+            reuse, _n = _tm_reuse(memory, todo, [lang], sig, entries)
+            to_check = _tm_to_check(args, memory, todo, reuse, sig)
+            rows[lang] = _dry_row(todo, _reused_keys(reuse, lang, todo), len(source_flat), verify,
+                                  (to_check or {}).get(lang) or (),
+                                  getattr(args, "verify_all", False))
+            if todo:
+                jobs.append({"langs": [lang], "chars": rows[lang]["send_characters"]})
+    else:
+        if not source_flat:
+            raise ValueError("no translatable strings")
+        reuse, _n = _tm_reuse(memory, source_flat, langs, sig, entries)
+        to_check = _tm_to_check(args, memory, source_flat, reuse, sig)
+        for lang in langs:
+            rows[lang] = _dry_row(source_flat, _reused_keys(reuse, lang, source_flat),
+                                  len(source_flat), verify, (to_check or {}).get(lang) or (),
+                                  getattr(args, "verify_all", False))
+        jobs.append({"langs": list(langs), "chars": sum(len(v) for v in source_flat.values())})
+        if kind in ("json", "arb") and any(
+                os.path.isfile(_out_path(path, l, args.out, args.source_lang, args.lang_case))
+                for l in langs):
+            note = "Translations already exist: --only-new would send only what is new or edited."
+
+    try:
+        shown = os.path.relpath(path)
+    except ValueError:
+        shown = path
+    return {"file": shown, "format": kind, "mode": "only new and edited" if incremental else "whole file",
+            "keys": len(source_flat), "source_characters": sum(len(v) for v in source_flat.values()),
+            "languages": rows, "jobs": jobs, "note": note,
+            "charged": sum(r["charged"] for r in rows.values()),
+            "reused_characters": sum(r["reused_characters"] for r in rows.values())}
+
+
+def _cmd_dry_run(client, files, langs, args):
+    """`translate --dry-run`: the bill before the run. It asks the server what `kaeris quota`
+    asks (the plan, its limits, what is left) and nothing else; no file leaves this machine.
+    Exit 0 whatever the answer, as the estimate is the result; 1 when a source cannot be read."""
+    key, key_error = None, ""
+    try:
+        key = client.key_info()
+    except KaerisError as e:
+        if getattr(e, "code", None) == 401:
+            err(str(e))
+            return 2
+        key_error = str(e)
+    try:
+        config = client.config()
+    except Exception:
+        config = None
+    if key is None or config is None:
+        warn(f"could not read the plan's limits ({key_error or 'no answer'}): "
+             "limits and what is left are unknown, the character count is still exact")
+
+    # The lock and the memory sign a run with the key's model: hand them the answer already
+    # in hand instead of asking again for every file.
+    def _asked():
+        if key is None:
+            raise KaerisError(key_error)
+        return key
+    client.key_info = _asked
+
+    exit_code, plans = 0, []
+    for path in files:
+        try:
+            plans.append(_dry_plan(client, path, langs, args))
+        except (OSError, ValueError, KaerisError) as e:
+            err(f"{path}: {e}{_hint(e)}")
+            exit_code = 1
+    rep = est.build(plans, key, config, args.verify,
+                    own_model_key=bool(getattr(client, "openrouter_key", None)))
+    if getattr(args, "json", False):
+        # Same console rule as `check --json`: a legacy code page cannot encode file names.
+        utf8 = (sys.stdout.encoding or "").lower().replace("-", "") in ("utf8", "utf8sig")
+        print(json.dumps(rep, ensure_ascii=not utf8, indent=2))
+    else:
+        for line in est.render(rep):
+            print(line)
     return exit_code
 
 
@@ -2077,6 +2261,14 @@ def build_parser():
                    help="Write a JSON record of the run (model, languages delivered, "
                         "characters charged vs reused, settings, glossary terms actually "
                         "found) — counts only, no strings, safe to commit.")
+    t.add_argument("--dry-run", dest="dry_run", action="store_true",
+                   help="Estimate only: print how many characters this run would be charged, per "
+                        "file and language, and how many are left on your plan, then exit. Counts "
+                        "--only-new, --lock, --tm and --verify as the real run would. Translates "
+                        "nothing and sends no file; it only asks the server for your plan, like "
+                        "`kaeris quota`.")
+    t.add_argument("--json", action="store_true",
+                   help="With --dry-run: print the estimate as JSON on stdout")
     t.set_defaults(func=cmd_translate)
 
     fp = sub.add_parser(
