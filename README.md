@@ -110,6 +110,9 @@ kaeris translate locales/en.json --langs de,ja --verify
 # …and write the fixes it found into the files (free, offline; see "kaeris fix" below)
 kaeris translate locales/en.json --langs de,ja --verify --apply-fixes
 
+# How many characters would that use? Nothing is translated or spent
+kaeris translate locales/en.json --langs de,ja --verify --dry-run
+
 # List all supported languages
 kaeris languages
 ```
@@ -174,6 +177,39 @@ Every `kaeris translate` prints the same line when it finishes, and raises it to
 **80%** of the month is spent — the point at which we also email the address the plan was bought
 with, and again at **95%**. Lifetime (BYOK) has no monthly volume: you pay OpenRouter for tokens
 directly.
+
+## `--dry-run` — what a run will cost, before it starts
+
+`kaeris quota` tells you what is left after a run. `--dry-run` tells you what a run will use,
+before anything is spent:
+
+```bash
+kaeris translate locales/en.json --langs de,fr,ja --only-new --dry-run
+```
+```text
+locales/en.json  (json, only new and edited; 240 keys, 11,820 characters)
+  language  to translate  reused  up to date  charged
+  de                   7       0         233      164
+  fr                  12       3         225      410
+  ja                 240       0           0   11,820
+
+Total: 12,394 characters will be charged.
+Pro: 10,800,000 of 12,000,000 left this month; after this run 10,787,606 left, resets 2026-12-01.
+```
+
+It reads your files, your lock (`--lock`), your project memory (`--tm`) and your settings, works
+out which lines a real run would send to the model, and prices them the way the server does:
+characters sent, per language. Lines the lock says are current and lines the memory already
+has are not counted. With `--verify`, each language also costs twice the whole file (the
+back-translation and the independent check read all of it, reused lines included).
+
+- Nothing is translated and no file is sent. It asks the server only for your plan, the same
+  call as `kaeris quota`. Without a key, or with the server out of reach, you still get the
+  character count, and what is left is reported as unknown.
+- It names what the server would refuse (a file over your plan's size, too many languages,
+  more than is left this month). The exit code stays 0: the estimate is the result.
+- `--json` prints the same as JSON on stdout (per file and language: keys, characters sent,
+  reused, verify, charged), for CI.
 
 ## Project translation memory
 
@@ -515,6 +551,8 @@ Anything not passed falls back to `kaeris.json`, then to the built-in default.
 | `--receipt PATH` | write a JSON record of the run — counts and settings only, no strings |
 | `--tm PATH` | project translation memory file (default `kaeris-tm.json` next to the source) |
 | `--no-tm` | ignore and do not update the project translation memory |
+| `--dry-run` | estimate only: characters this run would be charged per file and language, and what is left on your plan; translates and sends nothing |
+| `--json` | with `--dry-run`: the estimate as JSON on stdout |
 
 **`kaeris check`**
 
