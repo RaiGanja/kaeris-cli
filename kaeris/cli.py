@@ -955,14 +955,17 @@ def _terms_opt(args, langs):
     return {"terms": out} if out else {}
 
 
-def _verify_opts(args, verify_reused):
-    """What verify should read beyond this run's translations. Sent only when it says
-    something, so an older server and the test stubs see the call they know."""
+def _verify_opts(args, verify_reused, reuse=None):
+    """What verify should read beyond this run's translations. With remembered lines the
+    server needs `verify_reused` even when empty (`{}`): a request with `reuse` and no such
+    field is read as a CLI older than 0.2.39 and the whole file is checked and charged."""
     if not args.verify:
         return {}
     if getattr(args, "verify_all", False):
         return {"verify_all": True}
-    return {"verify_reused": verify_reused} if verify_reused else {}
+    if verify_reused:
+        return {"verify_reused": verify_reused}
+    return {"verify_reused": {}} if reuse else {}
 
 
 def _run_job(client, fname, content, langs, args, reuse=None, label="", verify_reused=None):
@@ -970,7 +973,7 @@ def _run_job(client, fname, content, langs, args, reuse=None, label="", verify_r
     so it can run beside other jobs. Returns (job, status, members)."""
     for attempt in range(RESTART_RETRIES + 1):
         job = client.submit(fname, content, langs, _glossary(args), reuse=reuse,
-                            **_verify_opts(args, verify_reused),
+                            **_verify_opts(args, verify_reused, reuse),
                             verify=args.verify, back_lang=args.back_lang,
                             tone=_tone(args), icu=args.icu,
                             app_context=_app_context(args),

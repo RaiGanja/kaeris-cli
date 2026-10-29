@@ -1,6 +1,6 @@
 {
   "name": "kaeris",
-  "version": "0.2.38",
+  "version": "0.2.39",
   "description": "i18n firewall for CI: fails the build when translations are missing, extra or break placeholders. 13 locale formats, offline, no dependencies.",
   "keywords": ["i18n", "l10n", "localization", "translation", "ci", "lint", "check", "placeholders", "xcstrings", "arb", "po", "xliff", "fluent", "properties", "resx"],
   "homepage": "https://kaeris.dev",
